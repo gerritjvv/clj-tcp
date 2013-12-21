@@ -16,7 +16,10 @@
 (defrecord Client [group channel-f write-ch read-ch error-ch])
 
 (defn close-client [{:keys [group channel-f]}]
-  (-> channel-f .channel .closeFuture .sync)
+  (-> channel-f .channel .closeFuture .sync))
+
+(defn close-all [{:keys [group] :as conf}]
+  (close-client conf)
   (-> group .shutdownGracefully .sync))
 
 
