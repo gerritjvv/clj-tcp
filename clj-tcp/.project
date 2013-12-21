@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<projectDescription>
+  <name>clj-tcp</name>
+  <comment>Fast clojure tcp library based on netty</comment>
+  <projects/>
+  <buildSpec>
+    <buildCommand>
+      <name>ccw.builder</name>
+      <arguments/>
+    </buildCommand>
+    <buildCommand>
+      <name>org.eclipse.jdt.core.javabuilder</name>
+      <arguments/>
+    </buildCommand>
+  </buildSpec>
+  <natures>
+    <nature>ccw.nature</nature>
+    <nature>org.eclipse.jdt.core.javanature</nature>
+  </natures>
+</projectDescription>
