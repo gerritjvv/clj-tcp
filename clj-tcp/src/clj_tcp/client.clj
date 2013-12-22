@@ -24,11 +24,13 @@
 
 
 (defn close-client [{:keys [group channel-f]}]
-  (-> ^ChannelFuture channel-f ^Channel .channel .closeFuture))
+  (if channel-f
+    (-> ^ChannelFuture channel-f ^Channel .channel .closeFuture)))
 
 (defn close-all [{:keys [group] :as conf}]
   (close-client conf)
-  (-> group .shutdownGracefully .sync))
+  (if group
+    (-> group .shutdownGracefully .sync)))
 
 
 (defn client-handler [{:keys [group read-ch error-ch write-ch]}]
@@ -163,7 +165,12 @@
          g (NioEventLoopGroup.)
          conf {:group g :write-ch write-ch :read-ch read-ch :error-ch error-ch :handlers handlers}
          client (start-client host port conf) ]
-
+    
+    (if (not client)
+      (do 
+        (close-all client)
+        (throw (RuntimeException. "Unable to create client"))))
+    
     ;async read off error-ch
     (go 
       (loop [local-client client]
@@ -207,7 +214,7 @@
                               v1) ;else return the value (this is c, the connection)
                             )))]
                       
-                      (if (instance? FailedWrite o) 
+                      (if (and (instance? FailedWrite o) c)
                         (do 
                             (info "retry failed write: ")
                             (<! (timeout 500))
