@@ -4,7 +4,7 @@
              [clojure.core.async :refer [chan >!! go >! <! <!! thread timeout]])
    (:import  
             [java.net InetSocketAddress]
-            [java.util.concurrent.atomic AtomicInteger]
+            [java.util.concurrent.atomic AtomicInteger AtomicBoolean]
             [io.netty.util CharsetUtil]
             [io.netty.buffer Unpooled ByteBuf ByteBufUtil]
             [io.netty.channel SimpleChannelInboundHandler ChannelPipeline ChannelFuture Channel ChannelHandler ChannelInboundHandlerAdapter ChannelInitializer ChannelInitializer ChannelHandlerContext ChannelFutureListener]
@@ -13,7 +13,7 @@
             [io.netty.bootstrap Bootstrap]
             [io.netty.channel.socket.nio NioSocketChannel]))
 
-(defrecord Client [group channel-f write-ch read-ch error-ch ^AtomicInteger reconnect-count])
+(defrecord Client [group channel-f write-ch read-ch error-ch ^AtomicInteger reconnect-count ^AtomicBoolean closed])
 
 
 (defrecord Reconnected [^Client client cause])
@@ -27,10 +27,12 @@
   (if channel-f
     (-> ^ChannelFuture channel-f ^Channel .channel .closeFuture)))
 
-(defn close-all [{:keys [group] :as conf}]
+(defn close-all [{:keys [group closed] :as conf}]
   (close-client conf)
   (if group
-    (-> group .shutdownGracefully .sync)))
+    (-> group .shutdownGracefully .sync))
+  (if closed
+    (.set ^AtomicBoolean closed true)))
 
 
 (defn client-handler [{:keys [group read-ch error-ch write-ch]}]
