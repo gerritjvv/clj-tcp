@@ -1,7 +1,7 @@
 (ns clj-tcp.client
    (:require [clojure.tools.logging :refer [info error]]
              [clj-tcp.codec :refer [byte-decoder byte-encoder buffer->bytes]]
-             [clojure.core.async :refer [chan >!! go >! <! <!! thread timeout]])
+             [clojure.core.async :refer [chan >!! go >! <! <!! thread timeout alts!!]])
    (:import  
             [java.net InetSocketAddress]
             [java.util.concurrent.atomic AtomicInteger AtomicBoolean]
@@ -97,13 +97,28 @@
   "Writes and blocks if the write-ch is full"
   (>!! write-ch v))
 
-(defn read! [{:keys [read-ch]}]
+(defn read! 
+  ([{:keys [read-ch]} timeout-ms]
+    (first 
+      (alts!!
+		     [read-ch
+		     (timeout timeout-ms)])))
+  ([{:keys [read-ch]}]
   "Reads from the read-ch and blocks if no data is available"
-  (<!! read-ch))
+  (<!! read-ch)))
 
-(defn read-error [{:keys [error-ch]}]
+
+
+(defn read-error 
+   ([{:keys [error-ch]} timeout-ms]
+    (first 
+      (alts!!
+		     [error-ch
+		     (timeout timeout-ms)])))
+    
+  ([{:keys [error-ch]}]
   "Reads from the error-ch and blocks if no data is available"
-  (<!! error-ch))
+  (<!! error-ch)))
 
 
 
@@ -129,12 +144,13 @@
         b (Bootstrap.)]
     (-> b (.group g)
       ^Bootstrap (.channel NioSocketChannel)
-      ^Bootstrap (.remoteAddress (InetSocketAddress. host port))
+      ^Bootstrap (.remoteAddress (InetSocketAddress. (str host) (int port)))
       ^Bootstrap (.handler ^ChannelInitializer (client-channel-initializer conf)))
     (let [ch-f (.connect b)]
       (.sync ch-f)
-      (->Client g ch-f write-ch read-ch error-ch (AtomicInteger.))))
+      (->Client g ch-f write-ch read-ch error-ch (AtomicInteger.) (AtomicBoolean. false))))
   (catch Exception e (do
+                       (.printStackTrace e)
                        (error (str "Error starting client " e) e)
                        (>!! error-ch [e nil])
                        ))))
@@ -170,8 +186,9 @@
     
     (if (not client)
       (do 
-        (close-all client)
-        (throw (RuntimeException. "Unable to create client"))))
+        (let [cause (read-error {:error-ch error-ch} 200)]
+	        (close-all client)
+	        (throw (RuntimeException. "Unable to create client" (first cause))))))
     
     ;async read off error-ch
     (go 
