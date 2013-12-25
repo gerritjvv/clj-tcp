@@ -210,9 +210,9 @@
 				              (do
                         ;if limit reached send poinson to all channels and call close all on client, end loop
 				                (error "Retry limit reached, closing all channels and connections")
-				                (go (>! write-ch (->Poison) ))
+				                (go (>! write-ch [(->Poison) nil] ))
 				                (go (>! read-ch (->Poison) ))
-				                (go (>! error-ch (->Poison) ))
+				                (go (>! error-ch [(->Poison) nil] ))
 				                (close-all local-client)
 			                  nil
 				              )
