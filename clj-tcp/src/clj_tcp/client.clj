@@ -1,6 +1,6 @@
 (ns clj-tcp.client
    (:require [clojure.tools.logging :refer [info error]]
-             [clj-tcp.codec :refer [byte-decoder byte-encoder buffer->bytes]]
+             [clj-tcp.codec :refer [byte-decoder default-encoder buffer->bytes]]
              [clojure.core.async :refer [chan >!! go >! <! <!! thread timeout alts!!]])
    (:import  
             [java.net InetSocketAddress]
@@ -50,6 +50,7 @@
       (error "Client-handler exception caught " cause)
       (error cause (>!! [cause ctx]) )
       (.close ctx))))
+
     
 (defn ^ChannelInitializer client-channel-initializer [{:keys [group read-ch error-ch write-ch handlers] :as conf}]
   (let [group (NioEventLoopGroup.)]
@@ -175,7 +176,7 @@
                                   retry-limit
                                   write-buff read-buff error-buff
                                   write-timeout read-timeout] 
-                           :or {handlers [byte-encoder] retry-limit 10
+                           :or {handlers [default-encoder] retry-limit 10
                                 write-buff 100 read-buff 100 error-buff 1000 reuse-client false write-timeout 1500 read-timeout 1500} }]
   (let [ write-ch (chan write-buff) 
          read-ch (chan read-buff)
