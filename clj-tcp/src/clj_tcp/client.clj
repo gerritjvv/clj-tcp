@@ -3,7 +3,9 @@
              [clj-tcp.codec :refer [byte-decoder default-encoder buffer->bytes]]
              [clojure.core.async :refer [chan >!! go >! <! <!! thread timeout alts!!]])
    (:import  
+            [io.netty.handler.codec ByteToMessageDecoder]
             [java.net InetSocketAddress]
+            [java.util List]
             [java.util.concurrent.atomic AtomicInteger AtomicBoolean]
             [io.netty.util CharsetUtil]
             [io.netty.buffer Unpooled ByteBuf ByteBufUtil]
@@ -41,10 +43,9 @@
     (channelActive [^ChannelHandlerContext ctx]
       ;(.writeAndFlush ctx (Unpooled/copiedBuffer "Netty Rocks1" CharsetUtil/UTF_8))
       )
-    (channelRead0 [^ChannelHandlerContext ctx ^ByteBuf in]
-      ;(info "Received")
-      ;(info "Client received : " (ByteBufUtil/hexDump (.readBytes in (.readableBytes in))))
-      (>!! read-ch (buffer->bytes in))
+    (channelRead0 [^ChannelHandlerContext ctx in]
+      (info "Read channel got data!!!!!!!! " (type in))
+      (>!! read-ch (if (instance? ByteBuf in) (buffer->bytes in)  in))
       )
     (exceptionCaught [^ChannelHandlerContext ctx cause]
       (error "Client-handler exception caught " cause)
@@ -59,10 +60,12 @@
 	    (initChannel [^Channel ch]
         (try 
 	        ;add the last default read handler that will send all read objects to the read-ch blocking if full
-          (-> ch  ^ChannelPipeline (.pipeline) (.addLast ^EventExecutorGroup group (into-array ChannelHandler [(client-handler conf)])))
          ;add any extra handlers e.g. for encoding or deconding
           (if handlers
             (-> ch  ^ChannelPipeline (.pipeline) (.addLast group (into-array ChannelHandler (map #(%) handlers)))))
+         
+           (-> ch  ^ChannelPipeline (.pipeline) (.addLast ^EventExecutorGroup group (into-array ChannelHandler [(client-handler conf)])))
+         
          (catch Exception e (do 
                               (error (str "channel initializer error " e) e)
                               (go (>! error-ch [e nil]))
@@ -128,6 +131,7 @@
    to send any errors to the error-ch"
   (try 
     (do 
+      (info "Write and flush value " v)
      (let [ch-f (-> client ^ChannelFuture (:channel-f) ^Channel (.channel) ^ChannelFuture (.writeAndFlush v) (.addListener ^ChannelFutureListener (exception-listener v conf)))]
        (if close-after-write
          (.addListener ch-f ^ChannelFutureListener (close-listener client conf)))))
@@ -200,6 +204,8 @@
           (if (instance? Poison v)
             (if local-client (close-client local-client)) ;poinson pill end loop
           (do
+            (if (instance? Exception v) (error v v)) 
+              
             ;on error, pause writing, and close client
 	          (>! write-ch (->Pause 1000))
             (close-client local-client)

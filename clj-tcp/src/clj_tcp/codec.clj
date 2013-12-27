@@ -7,7 +7,7 @@
           [io.netty.buffer ByteBufAllocator]
           [io.netty.buffer ByteBuf]
           [io.netty.channel ChannelHandlerContext]
-          [io.netty.handler.codec MessageToByteEncoder MessageToMessageDecoder]
+          [io.netty.handler.codec MessageToByteEncoder MessageToMessageDecoder ByteToMessageDecoder]
           [java.util List]
           [java.util.concurrent Callable]
   ))
@@ -45,7 +45,7 @@
   
 
 (defn byte-decoder []
-  (proxy [MessageToMessageDecoder]
+  (proxy [ByteToMessageDecoder]
     []
     (decode [ctx ^ByteBuf buff ^List out] ;ChannelHandlerContext ctx, ByteBuf in, List<Object> out
       (.add out (buffer->bytes buff))
