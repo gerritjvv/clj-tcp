@@ -3,6 +3,7 @@
              [clj-tcp.codec :refer [byte-decoder default-encoder buffer->bytes]]
              [clojure.core.async :refer [chan >!! go >! <! <!! thread timeout alts!!]])
    (:import  
+            [clj_tcp.util PipelineUtil]
             [io.netty.handler.codec ByteToMessageDecoder]
             [java.net InetSocketAddress]
             [java.util List]
@@ -15,7 +16,7 @@
             [io.netty.bootstrap Bootstrap]
             [io.netty.channel.socket.nio NioSocketChannel]))
 
-(defrecord Client [group channel-f write-ch read-ch error-ch ^AtomicInteger reconnect-count ^AtomicBoolean closed])
+(defrecord Client [group channel-f write-ch read-ch internal-error-ch error-ch ^AtomicInteger reconnect-count ^AtomicBoolean closed])
 
 
 (defrecord Reconnected [^Client client cause])
@@ -33,18 +34,17 @@
   (close-client conf)
   (if group
     (-> group .shutdownGracefully .sync))
-  (if closed
+  (if (not closed)
     (.set ^AtomicBoolean closed true)))
 
 
-(defn client-handler [{:keys [group read-ch error-ch write-ch]}]
+(defn client-handler [{:keys [group read-ch internal-error-ch write-ch]}]
   (proxy [SimpleChannelInboundHandler]
     []
     (channelActive [^ChannelHandlerContext ctx]
       ;(.writeAndFlush ctx (Unpooled/copiedBuffer "Netty Rocks1" CharsetUtil/UTF_8))
       )
     (channelRead0 [^ChannelHandlerContext ctx in]
-      (info "Read channel got data!!!!!!!! " (type in))
       (>!! read-ch (if (instance? ByteBuf in) (buffer->bytes in)  in))
       )
     (exceptionCaught [^ChannelHandlerContext ctx cause]
@@ -53,7 +53,7 @@
       (.close ctx))))
 
     
-(defn ^ChannelInitializer client-channel-initializer [{:keys [group read-ch error-ch write-ch handlers] :as conf}]
+(defn ^ChannelInitializer client-channel-initializer [{:keys [^EventExecutorGroup group read-ch internal-error-ch write-ch handlers] :as conf}]
   (let [group (NioEventLoopGroup.)]
 	  (proxy [ChannelInitializer]
 	    []
@@ -61,18 +61,19 @@
         (try 
 	        ;add the last default read handler that will send all read objects to the read-ch blocking if full
          ;add any extra handlers e.g. for encoding or deconding
-          (if handlers
-            (-> ch  ^ChannelPipeline (.pipeline) (.addLast group (into-array ChannelHandler (map #(%) handlers)))))
-         
-           (-> ch  ^ChannelPipeline (.pipeline) (.addLast ^EventExecutorGroup group (into-array ChannelHandler [(client-handler conf)])))
+         (let [^ChannelPipeline pipeline (.pipeline ch)] 
+	         (if handlers
+	            (PipelineUtil/addLast pipeline group (map #(%) handlers)))
+	         
+	           (PipelineUtil/addLast pipeline group [(client-handler conf)]))
          
          (catch Exception e (do 
                               (error (str "channel initializer error " e) e)
-                              (go (>! error-ch [e nil]))
+                              (go (>! internal-error-ch [e nil]))
                               )))
 	      ))))
 
-(defn exception-listener [v {:keys [error-ch]}]
+(defn exception-listener [v {:keys [internal-error-ch]}]
   "Returns a GenericFutureListener instance
    that on completion checks the Future, if any exception
    an error is sent to the error-ch"
@@ -81,10 +82,10 @@
        (if (not (.isSuccess ^Future f))
          (if-let [cause (.cause ^Future f)]
                (do (error "operation complete cause " cause)
-                   (go (>! error-ch [cause (->FailedWrite v)])))
+                   (go (>! internal-error-ch [cause (->FailedWrite v)])))
            )))))
 
-(defn close-listener [^Client client {:keys [error-ch]}]
+(defn close-listener [^Client client {:keys [internal-error-ch]}]
   "Close a client after a write operation has been completed"
   (reify GenericFutureListener
     (operationComplete [this f]
@@ -93,7 +94,7 @@
                   (close-client client)
                   (catch Exception e (do
                                        (error (str "Close listener error " e)  e)
-                                       (>!! error-ch [e nil])
+                                       (>!! internal-error-ch [e nil])
                                        )))))))
            
 
@@ -126,9 +127,9 @@
 
 
 
-(defn- do-write [^Client client ^bytes v close-after-write {:keys [error-ch] :as conf}]
+(defn- do-write [^Client client ^bytes v close-after-write {:keys [internal-error-ch] :as conf}]
   "Writes to the channel, this operation is non blocking and a exception listener is added to the write's ChannelFuture
-   to send any errors to the error-ch"
+   to send any errors to the internal-error-ch"
   (try 
     (do 
       (info "Write and flush value " v)
@@ -137,13 +138,14 @@
          (.addListener ch-f ^ChannelFutureListener (close-listener client conf)))))
      (catch Exception e (do 
                           (error (str "Error in do-write " e) e)
-                          (>!! error-ch [e v])
+                          (>!! internal-error-ch [e v])
                           ))))
 
 
-(defn start-client [host port {:keys [group read-ch error-ch write-ch handlers] :as conf 
-                                 :or {group (NioEventLoopGroup.) read-ch (chan 100) error-ch (chan 100) write-ch (chan 100)}}]
-  "Start a Client instance with read-ch, write-ch and error-ch"
+(defn start-client [host port {:keys [group read-ch internal-error-ch error-ch write-ch handlers] :as conf 
+                                 :or {group (NioEventLoopGroup.) 
+                                      read-ch (chan 100) internal-error-ch (chan 100) error-ch (100) write-ch (chan 100)}}]
+  "Start a Client instance with read-ch, write-ch and internal-error-ch"
   (try
   (let [g (if group group (NioEventLoopGroup.))
         b (Bootstrap.)]
@@ -153,11 +155,11 @@
       ^Bootstrap (.handler ^ChannelInitializer (client-channel-initializer conf)))
     (let [ch-f (.connect b)]
       (.sync ch-f)
-      (->Client g ch-f write-ch read-ch error-ch (AtomicInteger.) (AtomicBoolean. false))))
+      (->Client g ch-f write-ch read-ch internal-error-ch error-ch (AtomicInteger.) (AtomicBoolean. false))))
   (catch Exception e (do
                        (.printStackTrace e)
                        (error (str "Error starting client " e) e)
-                       (>!! error-ch [e nil])
+                       (>!! internal-error-ch [e nil])
                        ))))
     
 (defn read-print-ch [n ch]
@@ -175,80 +177,90 @@
 (defn read-print-in [{:keys [read-ch]}]
   (read-print-ch "read" read-ch))
 
+(defn write-poison [{:keys [write-ch read-ch internal-error-ch]}]
+  (go (>! write-ch [(->Poison) nil] ))
+	(go (>! read-ch (->Poison) ))
+  (go (>! internal-error-ch [(->Poison) nil] )))
 
 (defn client [host port {:keys [handlers
                                   retry-limit
                                   write-buff read-buff error-buff
                                   write-timeout read-timeout] 
-                           :or {handlers [default-encoder] retry-limit 10
+                           :or {handlers [default-encoder] retry-limit 5
                                 write-buff 100 read-buff 100 error-buff 1000 reuse-client false write-timeout 1500 read-timeout 1500} }]
   (let [ write-ch (chan write-buff) 
          read-ch (chan read-buff)
+         internal-error-ch (chan error-buff)
          error-ch (chan error-buff)
          g (NioEventLoopGroup.)
-         conf {:group g :write-ch write-ch :read-ch read-ch :error-ch error-ch :handlers handlers}
+         conf {:group g :write-ch write-ch :read-ch read-ch :internal-error-ch internal-error-ch :error-ch error-ch :handlers handlers}
          client (start-client host port conf) ]
     
     (if (not client)
       (do 
-        (let [cause (read-error {:error-ch error-ch} 200)]
+        (let [cause (read-error {:internal-error-ch internal-error-ch} 200)]
 	        (close-all client)
 	        (throw (RuntimeException. "Unable to create client" (first cause))))))
     
-    ;async read off error-ch
+    ;async read off internal-error-ch
     (go 
       (loop [local-client client]
-        (let [[v o] (<! error-ch)]
-          (error "read error from error-ch " v)
-          
-          (if (instance? Poison v)
-            (if local-client (close-client local-client)) ;poinson pill end loop
-          (do
-            (if (instance? Exception v) (error v v)) 
-              
-            ;on error, pause writing, and close client
-	          (>! write-ch (->Pause 1000))
-            (close-client local-client)
-          
-           (let [c 
-                 (loop [acc 0] ;reconnect in loop
-				            (if (>= acc retry-limit)
-				              (do
-                        ;if limit reached send poinson to all channels and call close all on client, end loop
-				                (error "Retry limit reached, closing all channels and connections")
-				                (go (>! write-ch [(->Poison) nil] ))
-				                (go (>! read-ch (->Poison) ))
-				                (go (>! error-ch [(->Poison) nil] ))
-				                (close-all local-client)
-			                  nil
-				              )
-					            (let [v1 
-                             (try 
-									              (let [c (start-client host port conf)
-									                    reconnected (->Reconnected c v)]
-				                          ;if connected, send Reconnected instance to all channels and return c, this c is assigned to the loop using recur
-											                (.getAndIncrement ^AtomicInteger (:reconnect-count c))
-											                (>! read-ch reconnected)
-											                (>! write-ch reconnected)
-									                    c)
-									              (catch Exception e (do
-									                                   (error (str "Error while doing retry " e) e)
-                                                     e ;return exception to v, due to a bug in core async http://dev.clojure.org/jira/browse/ASYNC-48, we cannot recur here
-				                                             )))]
-                            (if (instance? Exception v1) ;if v is an exception recur
-                              (recur (inc acc))
-                              v1) ;else return the value (this is c, the connection)
-                            )))]
-                      
-                      (if (and (instance? FailedWrite o) c)
-                        (do 
-                            (info "retry failed write: ")
-                            (<! (timeout 500))
-                            (>! write-ch (:v o))))
-                      
-                      (recur c))
-           
-	          ))))) 
+        (let [[v o] (<! internal-error-ch)]
+          (error "read error from internal-error-ch " v)
+          (if (> (.get (:reconnect-count local-client)) retry-limit) ;check reconnect count
+             (do ;if the same connection has been reconnected too many times close
+               (write-poison local-client)
+               (close-all local-client)
+               (>! error-ch [v o]) ;send the error channel
+               )
+             (do
+		          (if (instance? Poison v)
+		            (if local-client (close-client local-client)) ;poinson pill end loop
+		          (do
+		            (if (instance? Exception v) (error v v)) 
+		              
+		            ;on error, pause writing, and close client
+			          (>! write-ch (->Pause 1000))
+		            (close-client local-client)
+		          
+		           (let [c 
+		                 (loop [acc 0] ;reconnect in loop
+						            (if (>= acc retry-limit)
+						              (do
+		                        ;if limit reached send poinson to all channels and call close all on client, end loop
+						                (error "Retry limit reached, closing all channels and connections")
+						                (write-poison local-client)
+						                (close-all local-client)
+                            (>! error-ch [v o]) ;write the exception to the error-ch
+					                  nil
+						              )
+							            (let [v1 
+		                             (try 
+											              (let [c (start-client host port conf)
+											                    reconnected (->Reconnected c v)]
+						                              ;if connected, send Reconnected instance to all channels and return c, this c is assigned to the loop using recur
+													                (.getAndIncrement ^AtomicInteger (:reconnect-count c))
+													                (>! read-ch reconnected)
+													                (>! write-ch reconnected)
+											                    c)
+											              (catch Exception e (do
+											                                   (error (str "Error while doing retry " e) e)
+		                                                     e ;return exception to v, due to a bug in core async http://dev.clojure.org/jira/browse/ASYNC-48, we cannot recur here
+						                                             )))]
+		                            (if (instance? Exception v1) ;if v is an exception recur
+		                              (recur (inc acc))
+		                              v1) ;else return the value (this is c, the connection)
+		                            )))]
+		                      
+		                      (if (and (instance? FailedWrite o) c)
+		                        (do 
+		                            (info "retry failed write: ")
+		                            (<! (timeout 500))
+		                            (>! write-ch (:v o))))
+		                      
+		                      (recur c)))))
+		           
+			          ))))
 		                
                 
               
@@ -263,11 +275,13 @@
 					             (instance? Pause v) (do (<! (timeout (:time v))) (recur local-client)) ;if pause, wait :time millis, then recur loop
 					             :else
 				                (do ;else write the value to the client channel
-                           (if (> (.get ^AtomicInteger (:reconnect-count local-client)) 0) (.set ^AtomicInteger (:reconnect-count local-client) 0))
+                           
 						               (do-write local-client v false conf)))
-							        (catch Exception e (do ;send any exception to the error-ch
+                           (if (> (.get ^AtomicInteger (:reconnect-count local-client)) 0) (.set ^AtomicInteger (:reconnect-count local-client) 0))
+                      
+							        (catch Exception e (do ;send any exception to the internal-error-ch
 								                            (error "!!!!! Error while writing " e)  
-								                            (go (>! error-ch [e nil]))
+								                            (go (>! internal-error-ch [e nil]))
                                     )))
                       (if (not (instance? Stop v))
                          (recur local-client)) ;if not stop recur loop

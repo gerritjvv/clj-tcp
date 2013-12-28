@@ -1,6 +1,7 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <classpath>
 	<classpathentry kind="src" path="src"/>
+	<classpathentry kind="src" path="java"/>
 	<classpathentry kind="lib" path="/Users/gvanvuuren/checkouts/clj-tcp/clj-tcp/target/classes"/>
 	<classpathentry kind="lib" path="/Users/gvanvuuren/.m2/repository/gui-diff/gui-diff/0.5.0/gui-diff-0.5.0.jar"/>
 	<classpathentry kind="lib" path="/Users/gvanvuuren/.m2/repository/utilize/utilize/0.2.3/utilize-0.2.3.jar"/>
