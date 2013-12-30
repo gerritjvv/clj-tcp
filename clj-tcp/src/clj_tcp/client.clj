@@ -34,8 +34,8 @@
   (close-client conf)
   (if group
     (-> group .shutdownGracefully .sync))
-  (if (not closed)
-    (.set ^AtomicBoolean closed true)))
+  (prn "Close all !!!!!!!!! " (hash (closed)))
+   (.set ^AtomicBoolean closed true))
 
 
 (defn client-handler [{:keys [group read-ch internal-error-ch write-ch]}]
@@ -142,8 +142,11 @@
                           ))))
 
 
-(defn start-client [host port {:keys [group read-ch internal-error-ch error-ch write-ch handlers] :as conf 
-                                 :or {group (NioEventLoopGroup.) 
+(defn start-client 
+  ([host port {:keys [group read-ch internal-error-ch error-ch write-ch handlers reconnect-count closed] :as conf 
+                                 :or {group (NioEventLoopGroup.)
+                                      reconnect-count (AtomicInteger. (int 0))
+                                      closed (AtomicBoolean. false)
                                       read-ch (chan 100) internal-error-ch (chan 100) error-ch (chan 100) write-ch (chan 100)}}]
   "Start a Client instance with read-ch, write-ch and internal-error-ch"
   (try
@@ -155,12 +158,12 @@
       ^Bootstrap (.handler ^ChannelInitializer (client-channel-initializer conf)))
     (let [ch-f (.connect b)]
       (.sync ch-f)
-      (->Client g ch-f write-ch read-ch internal-error-ch error-ch (AtomicInteger.) (AtomicBoolean. false))))
+      (->Client g ch-f write-ch read-ch internal-error-ch error-ch reconnect-count closed)))
   (catch Exception e (do
                        (.printStackTrace e)
                        (error (str "Error starting client " e) e)
                        (>!! internal-error-ch [e nil])
-                       ))))
+                       )))))
     
 (defn read-print-ch [n ch]
   (go 
@@ -194,7 +197,8 @@
          internal-error-ch (chan error-buff)
          error-ch (chan error-buff)
          g (NioEventLoopGroup.)
-         conf {:group g :write-ch write-ch :read-ch read-ch :internal-error-ch internal-error-ch :error-ch error-ch :handlers handlers}
+         conf {:group g :write-ch write-ch :read-ch read-ch :internal-error-ch internal-error-ch :error-ch error-ch :handlers handlers
+               :reconnect-count (AtomicInteger.) :closed (AtomicBoolean. false)}
          client (start-client host port conf) ]
     
     (if (not client)
@@ -207,14 +211,20 @@
     (go 
       (loop [local-client client]
         (let [[v o] (<! internal-error-ch)
-              reconnected-count (.get ^AtomicInteger (:reconnect-count client))
+              reconnect-count (.get ^AtomicInteger (:reconnect-count local-client))
               ]
-          (error "read error from internal-error-ch " v)
+          (error "read error from internal-error-ch " v " reconnect count " reconnect-count)
+          (prn "is closed " (:closed local-client) " hash " (hash (:closed local-client)))
           (if (> reconnect-count retry-limit) ;check reconnect count
              (do ;if the same connection has been reconnected too many times close
                (write-poison local-client)
-               (close-all local-client)
-               (>! error-ch [v o]) ;send the error channel
+               (try
+                   (close-all local-client)
+                   (catch Exception (.printStackTrace e)))
+               
+               (.set ^AtomicBoolean (:closed local-client) true)
+               (go (>! error-ch [v o])) ;send the error channel
+               
                )
              (do
 		          (if (instance? Poison v)
@@ -242,7 +252,8 @@
 											              (let [c (start-client host port conf)
 											                    reconnected (->Reconnected c v)]
 						                              ;if connected, send Reconnected instance to all channels and return c, this c is assigned to the loop using recur
-													                (.addAndGet ^AtomicInteger (:reconnect-count c) (int reconnected-count))
+                                          (.addAndGet ^AtomicInteger (:reconnect-count c) (int (inc reconnect-count)))
+                                    
 													                (>! read-ch reconnected)
 													                (>! write-ch reconnected)
 											                    c)
@@ -274,14 +285,14 @@
 		          (if (instance? Stop v) nil ;if stop exit loop
 		             (do 
                    (try 
-                      (cond (instance? Reconnected v) (do (recur (:client v))) ;if reconnect recur with the new client
+                      (cond (instance? Reconnected v) (do
+                                                        (prn "Writer received reconnected " (:client v))
+                                                        (recur (:client v))) ;if reconnect recur with the new client
 					             (instance? Pause v) (do (<! (timeout (:time v))) (recur local-client)) ;if pause, wait :time millis, then recur loop
 					             :else
 				                (do ;else write the value to the client channel
-                           
 						               (do-write local-client v false conf)))
-                           (if (> (.get ^AtomicInteger (:reconnect-count local-client)) 0) (.set ^AtomicInteger (:reconnect-count local-client) 0))
-                      
+                           
 							        (catch Exception e (do ;send any exception to the internal-error-ch
 								                            (error "!!!!! Error while writing " e)  
 								                            (go (>! internal-error-ch [e nil]))
