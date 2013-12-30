@@ -53,6 +53,7 @@
       (.close ctx))))
 
     
+
 (defn ^ChannelInitializer client-channel-initializer [{:keys [^EventExecutorGroup group read-ch internal-error-ch write-ch handlers] :as conf}]
   (let [group (NioEventLoopGroup.)]
 	  (proxy [ChannelInitializer]
@@ -113,7 +114,6 @@
   (<!! read-ch)))
 
 
-
 (defn read-error 
    ([{:keys [error-ch]} timeout-ms]
     (first 
@@ -144,7 +144,7 @@
 
 (defn start-client [host port {:keys [group read-ch internal-error-ch error-ch write-ch handlers] :as conf 
                                  :or {group (NioEventLoopGroup.) 
-                                      read-ch (chan 100) internal-error-ch (chan 100) error-ch (100) write-ch (chan 100)}}]
+                                      read-ch (chan 100) internal-error-ch (chan 100) error-ch (chan 100) write-ch (chan 100)}}]
   "Start a Client instance with read-ch, write-ch and internal-error-ch"
   (try
   (let [g (if group group (NioEventLoopGroup.))
@@ -188,6 +188,7 @@
                                   write-timeout read-timeout] 
                            :or {handlers [default-encoder] retry-limit 5
                                 write-buff 100 read-buff 100 error-buff 1000 reuse-client false write-timeout 1500 read-timeout 1500} }]
+  
   (let [ write-ch (chan write-buff) 
          read-ch (chan read-buff)
          internal-error-ch (chan error-buff)
