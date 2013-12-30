@@ -206,9 +206,11 @@
     ;async read off internal-error-ch
     (go 
       (loop [local-client client]
-        (let [[v o] (<! internal-error-ch)]
+        (let [[v o] (<! internal-error-ch)
+              reconnected-count (.get ^AtomicInteger (:reconnect-count client))
+              ]
           (error "read error from internal-error-ch " v)
-          (if (> (.get (:reconnect-count local-client)) retry-limit) ;check reconnect count
+          (if (> reconnect-count retry-limit) ;check reconnect count
              (do ;if the same connection has been reconnected too many times close
                (write-poison local-client)
                (close-all local-client)
@@ -240,7 +242,7 @@
 											              (let [c (start-client host port conf)
 											                    reconnected (->Reconnected c v)]
 						                              ;if connected, send Reconnected instance to all channels and return c, this c is assigned to the loop using recur
-													                (.getAndIncrement ^AtomicInteger (:reconnect-count c))
+													                (.addAndGet ^AtomicInteger (:reconnect-count c) (int reconnected-count))
 													                (>! read-ch reconnected)
 													                (>! write-ch reconnected)
 											                    c)
