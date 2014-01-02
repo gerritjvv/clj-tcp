@@ -27,20 +27,23 @@
     (.writerIndex buff (int (+ writer-i cnt)))
     buff))
 
-(defn default-encoder []
+(defn default-encoder 
+  ([]
+    (default-encoder false))
+  ([^Boolean prever-direct]
   "Acceps 1: a callable and calls it with the ByteBuf as argument
           2: a string 
           3: a byte array
           4: or a ByteBuff
   "
   (proxy [MessageToByteEncoder]
-    []
+    [prever-direct]
     (encode[ctx msg ^ByteBuf buff]
       (cond
           (instance? IFn msg) (msg buff)
           (instance? String) (.writeBytes buff (.getBytes ^String msg "UTF-8"))
           (instance? ByteBuf) (.writeBytes buff ^ByteBuf msg)
-          :else (.writeBytes buff ^bytes msg)))))
+          :else (.writeBytes buff ^bytes msg))))))
           
   
 
