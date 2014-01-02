@@ -3,6 +3,7 @@
              [clj-tcp.codec :refer [byte-decoder default-encoder buffer->bytes]]
              [clojure.core.async :refer [chan >!! go >! <! <!! thread timeout alts!!]])
    (:import  
+            
             [clj_tcp.util PipelineUtil]
             [io.netty.handler.codec ByteToMessageDecoder]
             [java.net InetSocketAddress]
@@ -10,7 +11,7 @@
             [java.util.concurrent.atomic AtomicInteger AtomicBoolean]
             [io.netty.util CharsetUtil]
             [io.netty.buffer Unpooled ByteBuf ByteBufUtil]
-            [io.netty.channel SimpleChannelInboundHandler ChannelPipeline ChannelFuture Channel ChannelHandler ChannelInboundHandlerAdapter ChannelInitializer ChannelInitializer ChannelHandlerContext ChannelFutureListener]
+            [io.netty.channel ChannelOption SimpleChannelInboundHandler ChannelPipeline ChannelFuture Channel ChannelHandler ChannelInboundHandlerAdapter ChannelInitializer ChannelInitializer ChannelHandlerContext ChannelFutureListener]
             [io.netty.channel.nio NioEventLoopGroup]
             [io.netty.util.concurrent GenericFutureListener Future EventExecutorGroup]
             [io.netty.bootstrap Bootstrap]
@@ -25,6 +26,20 @@
 (defrecord Poison [])
 (defrecord FailedWrite [v])
 
+(defonce ALLOCATOR ChannelOption/ALLOCATOR)
+(defonce ALLOW-HALF-CLOSURE ChannelOption/ALLOW_HALF_CLOSURE)
+(defonce AUTO-READ ChannelOption/AUTO_READ)
+(defonce CONNECT-TIMEOUT-MILLIS  ChannelOption/CONNECT_TIMEOUT_MILLIS)
+(defonce MAX-MESSAGES-PER-READ ChannelOption/MAX_MESSAGES_PER_READ)
+(defonce MESSAGE-SIZE-ESTIMATOR ChannelOption/MESSAGE_SIZE_ESTIMATOR)
+(defonce RCVBUF-ALLOCATOR ChannelOption/RCVBUF_ALLOCATOR)
+(defonce SO-BACKLOG ChannelOption/SO_BACKLOG)
+(defonce SO-KEEPALIVE ChannelOption/SO_KEEPALIVE)
+(defonce SO-RCVBUF ChannelOption/SO_RCVBUF)
+(defonce SO-REUSEADDR ChannelOption/SO_REUSEADDR)
+(defonce SO-SNDBUF ChannelOption/SO_SNDBUF)
+(defonce SO-TIMEOUT ChannelOption/SO_TIMEOUT)
+(defonce TCP-NODELAY ChannelOption/TCP_NODELAY)
 
 (defn close-client [{:keys [group channel-f]}]
   (if channel-f
@@ -143,7 +158,7 @@
 
 
 (defn start-client 
-  ([host port {:keys [group read-ch internal-error-ch error-ch write-ch handlers reconnect-count closed] :as conf 
+  ([host port {:keys [group channel-options read-ch internal-error-ch error-ch write-ch handlers reconnect-count closed] :as conf 
                                  :or {group (NioEventLoopGroup.)
                                       reconnect-count (AtomicInteger. (int 0))
                                       closed (AtomicBoolean. false)
@@ -152,6 +167,12 @@
   (try
   (let [g (if group group (NioEventLoopGroup.))
         b (Bootstrap.)]
+    
+    ;add channel options if specified
+    (if channel-options
+      (doseq [[channel-option val] channel-options]
+        (.option b channel-option val)))
+    
     (-> b (.group g)
       ^Bootstrap (.channel NioSocketChannel)
       ^Bootstrap (.remoteAddress (InetSocketAddress. (str host) (int port)))
@@ -186,6 +207,7 @@
   (go (>! internal-error-ch [(->Poison) nil] )))
 
 (defn client [host port {:keys [handlers
+                                  channel-options ;io.netty.channel options a sequence of [option val] e.g. [[option val] ... ]
                                   retry-limit
                                   write-buff read-buff error-buff
                                   write-timeout read-timeout] 
@@ -198,6 +220,7 @@
          error-ch (chan error-buff)
          g (NioEventLoopGroup.)
          conf {:group g :write-ch write-ch :read-ch read-ch :internal-error-ch internal-error-ch :error-ch error-ch :handlers handlers
+               :channel-options channel-options
                :reconnect-count (AtomicInteger.) :closed (AtomicBoolean. false)}
          client (start-client host port conf) ]
     

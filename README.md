@@ -36,6 +36,22 @@ The binaries are published to https://clojars.org/clj-tcp
 
 ```
 
+### Configuration
+
+The following config options can be passed to the client
+
+
+
+```clojure
+(def c (client "localhost" 2324 {:handlers [default-encoder] ; ChannelHandlers that will be added to the Channel pipeline
+                                  channel-options [[TCP-NODELAY true]] ;io.netty.channel options a sequence of [option val] e.g. [[option val] ... ]
+                                  retry-limit 5 ; on write error the client will retry the write this amount of times
+                                  write-buff 100 ; writes are async, this is the buffer thats used for the clojure.async.channel
+                                  read-buff  100 ; reads are written to the read channel, the buffer is specified here
+				  error-buff 100 ; errors are sent to the error-ch, the buffer is specified here
+        ))
+```
+
 ## Contact
 
 Email: gerritjvv@gmail.com

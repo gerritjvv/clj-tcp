@@ -1,4 +1,4 @@
-(defproject clj-tcp "0.2.1-SNAPSHOT"
+(defproject clj-tcp "0.2.2-SNAPSHOT"
   :description "Fast clojure tcp library based on netty"
   :url "https://github.com/gerritjvv/clj-tcp"
   :license {:name "Eclipse Public License"
