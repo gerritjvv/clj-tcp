@@ -132,7 +132,7 @@
    to send any errors to the internal-error-ch"
   (try 
     (do 
-      (info "Write and flush value " v)
+      ;(info "Write and flush value " v)
      (let [ch-f (-> client ^ChannelFuture (:channel-f) ^Channel (.channel) ^ChannelFuture (.writeAndFlush v) (.addListener ^ChannelFutureListener (exception-listener v conf)))]
        (if close-after-write
          (.addListener ch-f ^ChannelFutureListener (close-listener client conf)))))
