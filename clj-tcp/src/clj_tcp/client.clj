@@ -204,6 +204,12 @@
 (defn read-print-in [{:keys [read-ch]}]
   (read-print-ch "read" read-ch))
 
+
+(defn- create-write-lock-ch [max-concurrent-writes]
+  (let [write-lock-ch (chan (dropping-buffer max-concurrent-writes))]
+    (doseq [i (range max-concurrent-writes)]
+      (>! write-lock-ch 1))))
+
 (defn write-poison [{:keys [write-ch read-ch internal-error-ch]}]
   (go (>! write-ch [(->Poison) nil] ))
 	(go (>! read-ch (->Poison) ))
@@ -219,7 +225,7 @@
                                 write-buff 100 read-buff 100 error-buff 1000 reuse-client false write-timeout 1500 read-timeout 1500
                                 max-concurrent-writes 4000} }]
   
-  (let [ write-lock-ch (chan (dropping-buffer max-concurrent-writes))
+  (let [ write-lock-ch (create-write-lock-ch max-concurrent-writes)
          write-ch (chan write-buff) 
          read-ch (chan read-buff)
          internal-error-ch (chan error-buff)
