@@ -1,7 +1,7 @@
 (ns clj-tcp.client
    (:require [clojure.tools.logging :refer [info error]]
              [clj-tcp.codec :refer [byte-decoder default-encoder buffer->bytes]]
-             [clojure.core.async :refer [chan >!! go >! <! <!! thread timeout alts!!]])
+             [clojure.core.async :refer [chan >!! go >! <! <!! thread timeout alts!! dropping-buffer]])
    (:import  
             
             [clj_tcp.util PipelineUtil]
@@ -89,22 +89,24 @@
                               )))
 	      ))))
 
-(defn exception-listener [v {:keys [internal-error-ch]}]
+(defn exception-listener [write-lock-ch v {:keys [internal-error-ch]}]
   "Returns a GenericFutureListener instance
    that on completion checks the Future, if any exception
    an error is sent to the error-ch"
   (reify GenericFutureListener
     (operationComplete [this f]
+       (go (>! write-lock-ch 1)) ;release write lock
        (if (not (.isSuccess ^Future f))
          (if-let [cause (.cause ^Future f)]
                (do (error "operation complete cause " cause)
                    (go (>! internal-error-ch [cause (->FailedWrite v)])))
            )))))
 
-(defn close-listener [^Client client {:keys [internal-error-ch]}]
+(defn close-listener [^Client client write-lock-ch {:keys [internal-error-ch]}]
   "Close a client after a write operation has been completed"
   (reify GenericFutureListener
     (operationComplete [this f]
+       (go (>! write-lock-ch 1))
        (thread 
                (try
                   (close-client client)
@@ -142,16 +144,17 @@
 
 
 
-(defn- do-write [^Client client ^bytes v close-after-write {:keys [internal-error-ch] :as conf}]
+(defn- do-write [^Client client write-lock-ch ^bytes v close-after-write {:keys [internal-error-ch] :as conf}]
   "Writes to the channel, this operation is non blocking and a exception listener is added to the write's ChannelFuture
    to send any errors to the internal-error-ch"
   (try 
     (do 
       ;(info "Write and flush value " v)
-     (let [ch-f (-> client ^ChannelFuture (:channel-f) ^Channel (.channel) ^ChannelFuture (.writeAndFlush v) (.addListener ^ChannelFutureListener (exception-listener v conf)))]
+     (let [ch-f (-> client ^ChannelFuture (:channel-f) ^Channel (.channel) ^ChannelFuture (.writeAndFlush v) (.addListener ^ChannelFutureListener (exception-listener write-lock-ch v conf)))]
        (if close-after-write
-         (.addListener ch-f ^ChannelFutureListener (close-listener client conf)))))
+         (.addListener ch-f ^ChannelFutureListener (close-listener client write-lock-ch conf)))))
      (catch Exception e (do 
+                          (go (>! write-lock-ch 1));if exception release write lock
                           (error (str "Error in do-write " e) e)
                           (>!! internal-error-ch [e v])
                           ))))
@@ -210,11 +213,14 @@
                                   channel-options ;io.netty.channel options a sequence of [option val] e.g. [[option val] ... ]
                                   retry-limit
                                   write-buff read-buff error-buff
-                                  write-timeout read-timeout] 
+                                  write-timeout read-timeout
+                                  max-concurrent-writes] 
                            :or {handlers [default-encoder] retry-limit 5
-                                write-buff 100 read-buff 100 error-buff 1000 reuse-client false write-timeout 1500 read-timeout 1500} }]
+                                write-buff 100 read-buff 100 error-buff 1000 reuse-client false write-timeout 1500 read-timeout 1500
+                                max-concurrent-writes 4000} }]
   
-  (let [ write-ch (chan write-buff) 
+  (let [ write-lock-ch (chan (dropping-buffer max-concurrent-writes))
+         write-ch (chan write-buff) 
          read-ch (chan read-buff)
          internal-error-ch (chan error-buff)
          error-ch (chan error-buff)
@@ -304,7 +310,8 @@
      ;async read off write-ch     
      (go  
 	      (loop [local-client client]
-           (let [v (<! write-ch)]
+           (let [_ (<! write-lock-ch) ;wait for a write lock to appear
+                 v (<! write-ch)]
 		          (if (instance? Stop v) nil ;if stop exit loop
 		             (do 
                    (try 
@@ -314,7 +321,7 @@
 					             (instance? Pause v) (do (<! (timeout (:time v))) (recur local-client)) ;if pause, wait :time millis, then recur loop
 					             :else
 				                (do ;else write the value to the client channel
-						               (do-write local-client v false conf)))
+						               (do-write local-client write-lock-ch v false conf)))
                            
 							        (catch Exception e (do ;send any exception to the internal-error-ch
 								                            (error "!!!!! Error while writing " e)  
