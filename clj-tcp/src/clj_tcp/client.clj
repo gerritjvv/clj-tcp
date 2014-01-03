@@ -236,7 +236,7 @@
                :channel-options channel-options
                :reconnect-count (AtomicInteger.) :closed (AtomicBoolean. false)}
          client (start-client host port conf) ]
-    
+    (prn "Creating client with max concurrent writes " max-concurrent-writes)
     (if (not client)
       (do 
         (let [cause (read-error {:internal-error-ch internal-error-ch} 200)]
