@@ -207,8 +207,9 @@
 
 (defn- create-write-lock-ch [max-concurrent-writes]
   (let [write-lock-ch (chan (dropping-buffer max-concurrent-writes))]
-    (doseq [i (range max-concurrent-writes)]
-      (>! write-lock-ch 1))))
+    (go 
+      (doseq [i (range max-concurrent-writes)]
+        (>! write-lock-ch 1)))))
 
 (defn write-poison [{:keys [write-ch read-ch internal-error-ch]}]
   (go (>! write-ch [(->Poison) nil] ))
