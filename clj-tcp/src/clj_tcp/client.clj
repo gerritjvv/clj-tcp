@@ -46,10 +46,13 @@
     (-> ^ChannelFuture channel-f ^Channel .channel .closeFuture)))
 
 (defn close-all [{:keys [group closed] :as conf}]
-  (close-client conf)
+  
+  (try 
+    (close-client conf)
+    (catch Exception e (error e (str "Error while closing " conf))))
+  
   (if group
     (-> group .shutdownGracefully .sync))
-  (prn "Close all !!!!!!!!! " (hash (closed)))
    (.set ^AtomicBoolean closed true))
 
 
@@ -64,7 +67,7 @@
       )
     (exceptionCaught [^ChannelHandlerContext ctx cause]
       (error "Client-handler exception caught " cause)
-      (error cause (>!! [cause ctx]) )
+      (error cause (>!! internal-error-ch [cause ctx]) )
       (.close ctx))))
 
     
@@ -95,18 +98,20 @@
    an error is sent to the error-ch"
   (reify GenericFutureListener
     (operationComplete [this f]
-       (go (>! write-lock-ch 1)) ;release write lock
+       ;(go (>! write-lock-ch 1)) ;release write lock
        (if (not (.isSuccess ^Future f))
-         (if-let [cause (.cause ^Future f)]
-               (do (error "operation complete cause " cause)
-                   (go (>! internal-error-ch [cause (->FailedWrite v)])))
-           )))))
+         (do 
+             (error "=======>>>>>>>>>>>>>>>>>>>>>>>>>>> Write failed: " f)
+		         (if-let [cause (.cause ^Future f)]
+		               (do (error "operation complete cause " cause)
+		                   (go (>! internal-error-ch [cause (->FailedWrite v)])))
+		           ))))))
 
 (defn close-listener [^Client client write-lock-ch {:keys [internal-error-ch]}]
   "Close a client after a write operation has been completed"
   (reify GenericFutureListener
     (operationComplete [this f]
-       (go (>! write-lock-ch 1))
+       ;(go (>! write-lock-ch 1))
        (thread 
                (try
                   (close-client client)
@@ -154,8 +159,8 @@
        (if close-after-write
          (.addListener ch-f ^ChannelFutureListener (close-listener client write-lock-ch conf)))))
      (catch Exception e (do 
-                          (go (>! write-lock-ch 1));if exception release write lock
-                          (error (str "Error in do-write " e) e)
+                          ;(go (>! write-lock-ch 1));if exception release write lock
+                          (error e (str "Error in do-write " e))
                           (>!! internal-error-ch [e v])
                           ))))
 
@@ -184,9 +189,8 @@
       (.sync ch-f)
       (->Client g ch-f write-ch read-ch internal-error-ch error-ch reconnect-count closed)))
   (catch Exception e (do
-                       (.printStackTrace e)
-                       (error (str "Error starting client " e) e)
-                       (>!! internal-error-ch [e nil])
+                       (error e e)
+                       (>!! internal-error-ch [e 1])
                        )))))
     
 (defn read-print-ch [n ch]
@@ -195,7 +199,6 @@
       (let [c (<! ch1)]
          (if (instance? Reconnected c)
            (do 
-             ;(info "Reconnected " (:cause c) " ch1 " ch1 " new ch " (-> c :client :read-ch))
              (recur (-> c :client :read-ch)))
            (do 
              (info n " = " c)
@@ -212,9 +215,9 @@
         (>! write-lock-ch 1)))))
 
 (defn write-poison [{:keys [write-ch read-ch internal-error-ch]}]
-  (go (>! write-ch [(->Poison) nil] ))
+  (go (>! write-ch [(->Poison) 1] ))
 	(go (>! read-ch (->Poison) ))
-  (go (>! internal-error-ch [(->Poison) nil] )))
+  (go (>! internal-error-ch [(->Poison) 1] )))
 
 (defn client [host port {:keys [handlers
                                   channel-options ;io.netty.channel options a sequence of [option val] e.g. [[option val] ... ]
@@ -226,7 +229,7 @@
                                 write-buff 100 read-buff 100 error-buff 1000 reuse-client false write-timeout 1500 read-timeout 1500
                                 max-concurrent-writes 4000} }]
   
-  (let [ write-lock-ch (create-write-lock-ch max-concurrent-writes)
+  (let [ write-lock-ch nil ;(create-write-lock-ch max-concurrent-writes)
          write-ch (chan write-buff) 
          read-ch (chan read-buff)
          internal-error-ch (chan error-buff)
@@ -236,50 +239,56 @@
                :channel-options channel-options
                :reconnect-count (AtomicInteger.) :closed (AtomicBoolean. false)}
          client (start-client host port conf) ]
-    (prn "Creating client with max concurrent writes " max-concurrent-writes)
+    (info "Creating client with max concurrent writes " max-concurrent-writes  " client " client)
     (if (not client)
       (do 
         (let [cause (read-error {:internal-error-ch internal-error-ch} 200)]
-	        (close-all client)
-	        (throw (RuntimeException. "Unable to create client" (first cause))))))
+          (throw (RuntimeException. "Unable to create client" (first cause))))))
     
     ;async read off internal-error-ch
     (go 
       (loop [local-client client]
+        (info "wait -internal error: " internal-error-ch)
         (let [[v o] (<! internal-error-ch)
               reconnect-count (.get ^AtomicInteger (:reconnect-count local-client))
               ]
           (error "read error from internal-error-ch " v " reconnect count " reconnect-count)
-          (prn "is closed " (:closed local-client) " hash " (hash (:closed local-client)))
+          (error "is closed " (:closed local-client) " hash " (hash (:closed local-client)))
           (if (> reconnect-count retry-limit) ;check reconnect count
              (do ;if the same connection has been reconnected too many times close
-               (write-poison local-client)
                (try
-                   (close-all local-client)
-                   (catch Exception (.printStackTrace e)))
-               
-               (.set ^AtomicBoolean (:closed local-client) true)
-               (go (>! error-ch [v o])) ;send the error channel
-               
+		              (do 
+                    (write-poison local-client)
+			               ;(try
+			                ;   (close-all local-client)
+			                 ;  (catch Exception (.printStackTrace e)))
+			               
+			               (.set ^AtomicBoolean (:closed local-client) true)
+			               (>! error-ch [v o]) ;send the error channel
+                    )
+                (catch Exception e (error e e)))
                )
              (do
 		          (if (instance? Poison v)
 		            (if local-client (close-client local-client)) ;poinson pill end loop
 		          (do
+                (error "-------------------------- Exception in client " v)
 		            (if (instance? Exception v) (error v v)) 
 		              
 		            ;on error, pause writing, and close client
 			          (>! write-ch (->Pause 1000))
-		            (close-client local-client)
-		          
+		            
 		           (let [c 
 		                 (loop [acc 0] ;reconnect in loop
 						            (if (>= acc retry-limit)
 						              (do
 		                        ;if limit reached send poinson to all channels and call close all on client, end loop
-						                (error "Retry limit reached, closing all channels and connections")
-						                (write-poison local-client)
-						                (close-all local-client)
+						                (error "<<<<<<<<<===============  Retry limit reached, closing all channels and connections ===========>>>>>>>>>>>>>")
+						                
+                            (write-poison local-client)
+						                ;(try 
+                             ;    (close-all local-client)
+                              ;   (catch Exception e (error e e)))
                             (>! error-ch [v o]) ;write the exception to the error-ch
 					                  nil
 						              )
@@ -317,27 +326,30 @@
      ;async read off write-ch     
      (go  
 	      (loop [local-client client]
-           (let [_ (<! write-lock-ch) ;wait for a write lock to appear
-                 v (<! write-ch)]
-		          (if (instance? Stop v) nil ;if stop exit loop
-		             (do 
-                   (try 
-                      (cond (instance? Reconnected v) (do
-                                                        (prn "Writer received reconnected " (:client v))
-                                                        (recur (:client v))) ;if reconnect recur with the new client
-					             (instance? Pause v) (do (<! (timeout (:time v))) (recur local-client)) ;if pause, wait :time millis, then recur loop
-					             :else
-				                (do ;else write the value to the client channel
-						               (do-write local-client write-lock-ch v false conf)))
-                           
-							        (catch Exception e (do ;send any exception to the internal-error-ch
-								                            (error "!!!!! Error while writing " e)  
-								                            (go (>! internal-error-ch [e nil]))
-                                    )))
-                      (if (not (instance? Stop v))
-                         (recur local-client)) ;if not stop recur loop
-                      )))))
-    
+         (try
+	          (let [ 
+	                 v (<! write-ch)]
+			          (if (instance? Stop v) nil ;if stop exit loop
+			             (do 
+	                   (try 
+	                      (cond (instance? Reconnected v) (do
+	                                                        (error ">>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>  Writer received reconnected " (:client v))
+	                                                        (recur (:client v))) ;if reconnect recur with the new client
+						             (instance? Pause v) (do (<! (timeout (:time v))) (recur local-client)) ;if pause, wait :time millis, then recur loop
+						             :else
+					                (do ;else write the value to the client channel
+							               (do-write local-client nil v false conf)))
+	                           
+								        (catch Exception e (do ;send any exception to the internal-error-ch
+									                            (error "!!!!! Error while writing " e)  
+									                            (go (>! internal-error-ch [e nil]))
+	                                    )))
+	                      (if (not (instance? Stop v))
+	                         (recur local-client)) ;if not stop recur loop
+	                      )))
+                 (catch Exception e (error e "Error while reading off write-ch ")))
+                  ))
+	    
     
 		    client))         
 
