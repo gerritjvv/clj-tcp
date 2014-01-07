@@ -1,6 +1,7 @@
 (ns clj-tcp.client
    (:require [clojure.tools.logging :refer [info error]]
              [clj-tcp.codec :refer [byte-decoder default-encoder buffer->bytes]]
+             [clojure.core.async.impl.protocols :as asyncp]
              [clojure.core.async :refer [chan >!! go >! <! <!! thread timeout alts!! dropping-buffer]])
    (:import  
             
@@ -16,6 +17,15 @@
             [io.netty.util.concurrent GenericFutureListener Future EventExecutorGroup]
             [io.netty.bootstrap Bootstrap]
             [io.netty.channel.socket.nio NioSocketChannel]))
+; 
+(extend-protocol asyncp/Channel
+  nil
+  (close! [ch]
+    (try 
+      (throw (RuntimeException. "NPE in ch"))
+      (catch Exception e (error e e)))
+    )
+  )
 
 (defrecord Client [group channel-f write-ch read-ch internal-error-ch error-ch ^AtomicInteger reconnect-count ^AtomicBoolean closed])
 
@@ -63,8 +73,10 @@
       ;(.writeAndFlush ctx (Unpooled/copiedBuffer "Netty Rocks1" CharsetUtil/UTF_8))
       )
     (channelRead0 [^ChannelHandlerContext ctx in]
-      (info "Read0 " (Thread/currentThread))
+      (info "Read0 Start " (Thread/currentThread)  " read-ch: " read-ch)
       (>!! read-ch (if (instance? ByteBuf in) (buffer->bytes in)  in))
+      (info "Read0 Done " (Thread/currentThread))
+      
       )
     (exceptionCaught [^ChannelHandlerContext ctx cause]
       (error "Client-handler exception caught " cause)
@@ -74,7 +86,7 @@
     
 
 (defn ^ChannelInitializer client-channel-initializer [{:keys [^EventExecutorGroup group ^EventExecutorGroup read-group read-ch internal-error-ch write-ch handlers] :as conf}]
-	  (proxy [ChannelInitializer]
+   (proxy [ChannelInitializer]
 	    []
 	    (initChannel [^Channel ch]
         (try 
@@ -111,12 +123,12 @@
   (reify GenericFutureListener
     (operationComplete [this f]
        ;(go (>! write-lock-ch 1))
-       (thread 
+       (go 
                (try
                   (close-client client)
                   (catch Exception e (do
                                        (error (str "Close listener error " e)  e)
-                                       (>!! internal-error-ch [e nil])
+                                       (>! internal-error-ch [e nil])
                                        )))))))
            
 
@@ -171,7 +183,7 @@
                                       read-group (NioEventLoopGroup. 1)
                                       reconnect-count (AtomicInteger. (int 0))
                                       closed (AtomicBoolean. false)
-                                      read-ch (chan 100) internal-error-ch (chan 100) error-ch (chan 100) write-ch (chan 100)}}]
+                                      read-ch (chan 5) internal-error-ch (chan 100) error-ch (chan 100) write-ch (chan 10)}}]
   "Start a Client instance with read-ch, write-ch and internal-error-ch"
   (try
   (let [g (if group group (NioEventLoopGroup.))
@@ -228,9 +240,10 @@
                                   read-threads
                                   max-concurrent-writes] 
                            :or {handlers [default-encoder] retry-limit 5 read-threads 1
-                                write-buff 100 read-buff 100 error-buff 1000 reuse-client false write-timeout 1500 read-timeout 1500
+                                write-buff 10 read-buff 5 error-buff 1000 reuse-client false write-timeout 1500 read-timeout 1500
                                 max-concurrent-writes 4000} }]
   
+  (info "Creating read-ch with read-buff " read-buff " write-ch with write-buff " write-buff)
   (let [ write-lock-ch nil ;(create-write-lock-ch max-concurrent-writes)
          write-ch (chan write-buff) 
          read-ch (chan read-buff)
@@ -328,31 +341,27 @@
                 
               
      ;async read off write-ch     
-     (go  
+     (go
 	      (loop [local-client client]
-         (try
-	          (let [ 
+	          (let [ write-ch (:write-ch local-client)
 	                 v (<! write-ch)]
-			          (if (instance? Stop v) nil ;if stop exit loop
-			             (do 
-	                   (try 
-	                      (cond (instance? Reconnected v) (do
+	               (cond  (instance? Stop v) nil
+                        (instance? Reconnected v) (do
 	                                                        (error ">>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>  Writer received reconnected " (:client v))
 	                                                        (recur (:client v))) ;if reconnect recur with the new client
-						             (instance? Pause v) (do (<! (timeout (:time v))) (recur local-client)) ;if pause, wait :time millis, then recur loop
+						            (instance? Pause v) (do (<! (timeout (:time v))) (recur local-client)) ;if pause, wait :time millis, then recur loop
 						             :else
-					                (do ;else write the value to the client channel
-							               (do-write local-client nil v false conf)))
-	                           
-								        (catch Exception e (do ;send any exception to the internal-error-ch
-									                            (error "!!!!! Error while writing " e)  
-									                            (go (>! internal-error-ch [e nil]))
-	                                    )))
-	                      (if (not (instance? Stop v))
-	                         (recur local-client)) ;if not stop recur loop
+					                (do 
+	                            (try ;else write the value to the client channel
+	                            (do-write local-client nil v false conf)
+			                         (catch Exception e (do ;send any exception to the internal-error-ch
+											                            (error "!!!!! Error while writing " e)  
+											                            (thread (>!! internal-error-ch [e 1]))
+			                                    )))
+                              (recur local-client))
 	                      )))
-                 (catch Exception e (error e "Error while reading off write-ch ")))
-                  ))
+                 
+                  )
 	    
     
 		    client))         
