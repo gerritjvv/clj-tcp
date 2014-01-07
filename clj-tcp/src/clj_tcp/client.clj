@@ -75,7 +75,7 @@
     (channelRead0 [^ChannelHandlerContext ctx in]
       (info "Read0 Start " (Thread/currentThread)  " read-ch: " read-ch)
       (>!! read-ch (if (instance? ByteBuf in) (buffer->bytes in)  in))
-      (info "Read0 Done " (Thread/currentThread))
+      ;(info "Read0 Done " (Thread/currentThread))
       
       )
     (exceptionCaught [^ChannelHandlerContext ctx cause]
@@ -123,12 +123,12 @@
   (reify GenericFutureListener
     (operationComplete [this f]
        ;(go (>! write-lock-ch 1))
-       (go 
+       (thread 
                (try
                   (close-client client)
                   (catch Exception e (do
                                        (error (str "Close listener error " e)  e)
-                                       (>! internal-error-ch [e nil])
+                                       (>!! internal-error-ch [e nil])
                                        )))))))
            
 
@@ -344,7 +344,7 @@
      (thread
 	      (loop [local-client client]
 	          (let [ write-ch (:write-ch local-client)
-	                 v (<! write-ch)]
+	                 v (<!! write-ch)]
 	               (cond  (instance? Stop v) nil
                         (instance? Reconnected v) (do
 	                                                        (error ">>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>  Writer received reconnected " (:client v))
@@ -358,7 +358,7 @@
 											                            (error "!!!!! Error while writing " e)  
 											                            (thread (>!! internal-error-ch [e 1]))
 			                                    )))
-                              (recur local-client))
+                             (recur local-client))
 	                      )))
                  
                   )
