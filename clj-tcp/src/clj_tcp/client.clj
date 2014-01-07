@@ -341,7 +341,7 @@
                 
               
      ;async read off write-ch     
-     (go
+     (thread
 	      (loop [local-client client]
 	          (let [ write-ch (:write-ch local-client)
 	                 v (<! write-ch)]
