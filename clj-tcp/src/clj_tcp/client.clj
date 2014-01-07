@@ -63,6 +63,7 @@
       ;(.writeAndFlush ctx (Unpooled/copiedBuffer "Netty Rocks1" CharsetUtil/UTF_8))
       )
     (channelRead0 [^ChannelHandlerContext ctx in]
+      (info "Read0 " (Thread/currentThead))
       (>!! read-ch (if (instance? ByteBuf in) (buffer->bytes in)  in))
       )
     (exceptionCaught [^ChannelHandlerContext ctx cause]
@@ -72,8 +73,7 @@
 
     
 
-(defn ^ChannelInitializer client-channel-initializer [{:keys [^EventExecutorGroup group read-ch internal-error-ch write-ch handlers] :as conf}]
-  (let [group (NioEventLoopGroup.)]
+(defn ^ChannelInitializer client-channel-initializer [{:keys [^EventExecutorGroup group ^EventExecutorGroup read-group read-ch internal-error-ch write-ch handlers] :as conf}]
 	  (proxy [ChannelInitializer]
 	    []
 	    (initChannel [^Channel ch]
@@ -83,14 +83,13 @@
          (let [^ChannelPipeline pipeline (.pipeline ch)] 
 	         (if handlers
 	            (PipelineUtil/addLast pipeline group (map #(%) handlers)))
-	         
-	           (PipelineUtil/addLast pipeline group [(client-handler conf)]))
+ 	            (PipelineUtil/addLast pipeline read-group [(client-handler conf)]))
          
          (catch Exception e (do 
                               (error (str "channel initializer error " e) e)
                               (go (>! internal-error-ch [e nil]))
                               )))
-	      ))))
+	      )))
 
 (defn exception-listener [write-lock-ch v {:keys [internal-error-ch]}]
   "Returns a GenericFutureListener instance
@@ -166,8 +165,10 @@
 
 
 (defn start-client 
-  ([host port {:keys [group channel-options read-ch internal-error-ch error-ch write-ch handlers reconnect-count closed] :as conf 
+  ([host port {:keys [group read-group 
+                      channel-options read-ch internal-error-ch error-ch write-ch handlers reconnect-count closed] :as conf 
                                  :or {group (NioEventLoopGroup.)
+                                      read-group (NioEventLoopGroup. 1)
                                       reconnect-count (AtomicInteger. (int 0))
                                       closed (AtomicBoolean. false)
                                       read-ch (chan 100) internal-error-ch (chan 100) error-ch (chan 100) write-ch (chan 100)}}]
@@ -224,8 +225,9 @@
                                   retry-limit
                                   write-buff read-buff error-buff
                                   write-timeout read-timeout
+                                  read-threads
                                   max-concurrent-writes] 
-                           :or {handlers [default-encoder] retry-limit 5
+                           :or {handlers [default-encoder] retry-limit 5 read-threads 1
                                 write-buff 100 read-buff 100 error-buff 1000 reuse-client false write-timeout 1500 read-timeout 1500
                                 max-concurrent-writes 4000} }]
   
@@ -235,7 +237,9 @@
          internal-error-ch (chan error-buff)
          error-ch (chan error-buff)
          g (NioEventLoopGroup.)
-         conf {:group g :write-ch write-ch :read-ch read-ch :internal-error-ch internal-error-ch :error-ch error-ch :handlers handlers
+         read-group (if (> read-threads 0) (NioEventLoopGroup. read-threads) (NioEventLoopGroup.))
+         conf {:group g :read-group read-group 
+               :write-ch write-ch :read-ch read-ch :internal-error-ch internal-error-ch :error-ch error-ch :handlers handlers
                :channel-options channel-options
                :reconnect-count (AtomicInteger.) :closed (AtomicBoolean. false)}
          client (start-client host port conf) ]
