@@ -63,7 +63,7 @@
       ;(.writeAndFlush ctx (Unpooled/copiedBuffer "Netty Rocks1" CharsetUtil/UTF_8))
       )
     (channelRead0 [^ChannelHandlerContext ctx in]
-      (info "Read0 " (Thread/currentThead))
+      (info "Read0 " (Thread/currentThread))
       (>!! read-ch (if (instance? ByteBuf in) (buffer->bytes in)  in))
       )
     (exceptionCaught [^ChannelHandlerContext ctx cause]
