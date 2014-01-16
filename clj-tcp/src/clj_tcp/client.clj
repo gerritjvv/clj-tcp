@@ -17,15 +17,6 @@
             [io.netty.util.concurrent GenericFutureListener Future EventExecutorGroup]
             [io.netty.bootstrap Bootstrap]
             [io.netty.channel.socket.nio NioSocketChannel]))
-; 
-(extend-protocol asyncp/Channel
-  nil
-  (close! [ch]
-    (try 
-      (throw (RuntimeException. "NPE in ch"))
-      (catch Exception e (error e e)))
-    )
-  )
 
 (defrecord Client [group channel-f write-ch read-ch internal-error-ch error-ch ^AtomicInteger reconnect-count ^AtomicBoolean closed])
 
@@ -73,10 +64,7 @@
       ;(.writeAndFlush ctx (Unpooled/copiedBuffer "Netty Rocks1" CharsetUtil/UTF_8))
       )
     (channelRead0 [^ChannelHandlerContext ctx in]
-      (info "Read0 Start " (Thread/currentThread)  " read-ch: " read-ch)
       (>!! read-ch (if (instance? ByteBuf in) (buffer->bytes in)  in))
-      ;(info "Read0 Done " (Thread/currentThread))
-      
       )
     (exceptionCaught [^ChannelHandlerContext ctx cause]
       (error "Client-handler exception caught " cause)
@@ -149,14 +137,15 @@
 
 (defn read-error 
    ([{:keys [error-ch]} timeout-ms]
-    (first 
-      (alts!!
-		     [error-ch
-		     (timeout timeout-ms)])))
-    
+     (if error-ch
+		    (first 
+		      (alts!!
+				     [error-ch
+				     (timeout timeout-ms)]))))
+		    
   ([{:keys [error-ch]}]
   "Reads from the error-ch and blocks if no data is available"
-  (<!! error-ch)))
+    (if error-ch (<!! error-ch))))
 
 
 
@@ -243,7 +232,7 @@
                                 write-buff 10 read-buff 5 error-buff 1000 reuse-client false write-timeout 1500 read-timeout 1500
                                 max-concurrent-writes 4000} }]
   
-  (info "Creating read-ch with read-buff " read-buff " write-ch with write-buff " write-buff)
+  ;(info "Creating read-ch with read-buff " read-buff " write-ch with write-buff " write-buff)
   (let [ write-lock-ch nil ;(create-write-lock-ch max-concurrent-writes)
          write-ch (chan write-buff) 
          read-ch (chan read-buff)
@@ -256,7 +245,7 @@
                :channel-options channel-options
                :reconnect-count (AtomicInteger.) :closed (AtomicBoolean. false)}
          client (start-client host port conf) ]
-    (info "Creating client with max concurrent writes " max-concurrent-writes  " client " client)
+    ;(info "Creating client with max concurrent writes " max-concurrent-writes  " client " client)
     (if (not client)
       (do 
         (let [cause (read-error {:internal-error-ch internal-error-ch} 200)]
@@ -341,7 +330,7 @@
                 
               
      ;async read off write-ch     
-     (thread
+     (go
 	      (loop [local-client client]
 	          (let [ write-ch (:write-ch local-client)
 	                 v (<!! write-ch)]
