@@ -254,7 +254,7 @@
     ;async read off internal-error-ch
     (go 
       (loop [local-client client]
-        (info "wait -internal error: " internal-error-ch)
+        ;(info "wait -internal error: " internal-error-ch)
         (let [[v o] (<! internal-error-ch)
               reconnect-count (.get ^AtomicInteger (:reconnect-count local-client))
               ]
