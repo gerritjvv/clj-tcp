@@ -42,9 +42,10 @@
 (defonce SO-TIMEOUT ChannelOption/SO_TIMEOUT)
 (defonce TCP-NODELAY ChannelOption/TCP_NODELAY)
 
-(defn close-client [{:keys [group channel-f]}]
-  (if channel-f
-    (-> ^ChannelFuture channel-f ^Channel .channel .closeFuture)))
+(defn close-client [{:keys [group ^ChannelFuture channel-f]}]
+  (let [^Channel channel (.channel channel-f)]
+    (.await ^ChannelFuture (.disconnect channel))
+    (.await ^ChannelFuture (.close channel))))
 
 (defn close-all [{:keys [group closed] :as conf}]
   
@@ -52,8 +53,6 @@
     (close-client conf)
     (catch Exception e (error e (str "Error while closing " conf))))
   
-  (if group
-    (-> group .shutdownGracefully .sync))
    (.set ^AtomicBoolean closed true))
 
 
@@ -221,16 +220,19 @@
 	(go (>! read-ch (->Poison) ))
   (go (>! internal-error-ch [(->Poison) 1] )))
 
+(defonce default-nio-group (NioEventLoopGroup.))
+
 (defn client [host port {:keys [handlers
                                   channel-options ;io.netty.channel options a sequence of [option val] e.g. [[option val] ... ]
                                   retry-limit
                                   write-buff read-buff error-buff
                                   write-timeout read-timeout
-                                  read-threads
-                                  max-concurrent-writes] 
-                           :or {handlers [default-encoder] retry-limit 5 read-threads 1
+                                  write-group 
+                                  read-group
+                                 ] 
+                           :or {handlers [default-encoder] retry-limit 5
                                 write-buff 10 read-buff 5 error-buff 1000 reuse-client false write-timeout 1500 read-timeout 1500
-                                max-concurrent-writes 4000} }]
+                                } }]
   
   ;(info "Creating read-ch with read-buff " read-buff " write-ch with write-buff " write-buff)
   (let [ write-lock-ch nil ;(create-write-lock-ch max-concurrent-writes)
@@ -238,8 +240,8 @@
          read-ch (chan read-buff)
          internal-error-ch (chan error-buff)
          error-ch (chan error-buff)
-         g (NioEventLoopGroup.)
-         read-group (if (> read-threads 0) (NioEventLoopGroup. read-threads) (NioEventLoopGroup.))
+         g default-nio-group
+         n-read-group (if read-group read-group default-nio-group)
          conf {:group g :read-group read-group 
                :write-ch write-ch :read-ch read-ch :internal-error-ch internal-error-ch :error-ch error-ch :handlers handlers
                :channel-options channel-options

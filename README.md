@@ -16,7 +16,7 @@ Contact: feel free to contact me at gerritjvv@gmail.com
 
 The binaries are published to https://clojars.org/clj-tcp
 
-```[clj-tcp "0.2.14-SNAPSHOT"]```
+```[clj-tcp "0.2.15-SNAPSHOT"]```
 
 
 ```clojure
@@ -49,6 +49,8 @@ The following config options can be passed to the client
                                   write-buff 100 ; writes are async, this is the buffer thats used for the clojure.async.channel
                                   read-buff  100 ; reads are written to the read channel, the buffer is specified here
 				  error-buff 100 ; errors are sent to the error-ch, the buffer is specified here
+                                  write-group (NioEventLoopGroup.) ;by default the same NioEventLoopGroup is used between connections
+                                  read-group  (NioEventLoopGroup.) ;by default the same NioEventLoopGroup is used between connections, the same instance for the write-group and the read-group
         ))
 ```
 
