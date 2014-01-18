@@ -2,6 +2,7 @@ package clj_tcp;
 
 import io.netty.bootstrap.ServerBootstrap;
 import io.netty.buffer.ByteBuf;
+import io.netty.buffer.Unpooled;
 import io.netty.channel.ChannelFuture;
 import io.netty.channel.ChannelFutureListener;
 import io.netty.channel.ChannelHandlerContext;
@@ -33,10 +34,7 @@ public class TestServer {
 							@Override
 							public void channelRead(ChannelHandlerContext ctx,
 									Object msg) throws Exception {
-								System.out.println("received and sending response");
-								ctx.write("HI1".getBytes());
-								ctx.writeAndFlush("HI2".getBytes());
-								
+								ctx.writeAndFlush(Unpooled.wrappedBuffer("hi".getBytes()));
 							}
 	                    	 
 	                     });

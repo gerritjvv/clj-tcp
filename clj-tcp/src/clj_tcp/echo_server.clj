@@ -17,10 +17,11 @@
     []
     (channelRead [^ChannelHandlerContext ctx msg]
       (info "Received : " msg)
-      (.write ctx msg))
+      (.writeAndFlush ctx msg))
     (channelReadComplete [^ChannelHandlerContext ctx]
-      (-> ctx (.writeAndFlush Unpooled/EMPTY_BUFFER) 
-        (.addListener ChannelFutureListener/CLOSE)))
+      ;(-> ctx (.writeAndFlush Unpooled/EMPTY_BUFFER) 
+       ; (.addListener ChannelFutureListener/CLOSE))
+      )
     (exceptionCaught [^ChannelHandlerContext ctx cause]
       (error cause cause)
       (.close ctx))))

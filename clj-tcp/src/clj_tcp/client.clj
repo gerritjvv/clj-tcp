@@ -60,9 +60,13 @@
   (proxy [SimpleChannelInboundHandler]
     []
     (channelActive [^ChannelHandlerContext ctx]
+      ;(prn "channelActive")
+      ;(info "channelActive")
       ;(.writeAndFlush ctx (Unpooled/copiedBuffer "Netty Rocks1" CharsetUtil/UTF_8))
       )
     (channelRead0 [^ChannelHandlerContext ctx in]
+      ;(prn "channel read 0")
+      ;(info "channelRead0")
       (>!! read-ch (if (instance? ByteBuf in) (buffer->bytes in)  in))
       )
     (exceptionCaught [^ChannelHandlerContext ctx cause]
@@ -80,6 +84,7 @@
 	        ;add the last default read handler that will send all read objects to the read-ch blocking if full
          ;add any extra handlers e.g. for encoding or deconding
          (let [^ChannelPipeline pipeline (.pipeline ch)] 
+           ;(info "create pipeline handlers : " handlers)
 	         (if handlers
 	            (PipelineUtil/addLast pipeline group (map #(%) handlers)))
  	            (PipelineUtil/addLast pipeline read-group [(client-handler conf)]))
@@ -220,8 +225,6 @@
 	(go (>! read-ch (->Poison) ))
   (go (>! internal-error-ch [(->Poison) 1] )))
 
-(defonce default-nio-group (NioEventLoopGroup.))
-
 (defn client [host port {:keys [handlers
                                   channel-options ;io.netty.channel options a sequence of [option val] e.g. [[option val] ... ]
                                   retry-limit
@@ -240,9 +243,9 @@
          read-ch (chan read-buff)
          internal-error-ch (chan error-buff)
          error-ch (chan error-buff)
-         g default-nio-group
-         n-read-group (if read-group read-group default-nio-group)
-         conf {:group g :read-group read-group 
+         g (if write-group write-group (NioEventLoopGroup.))
+         n-read-group (if read-group read-group (NioEventLoopGroup.))
+         conf {:group g :read-group n-read-group 
                :write-ch write-ch :read-ch read-ch :internal-error-ch internal-error-ch :error-ch error-ch :handlers handlers
                :channel-options channel-options
                :reconnect-count (AtomicInteger.) :closed (AtomicBoolean. false)}
