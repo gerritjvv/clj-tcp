@@ -175,10 +175,10 @@
   ([host port {:keys [group read-group 
                       channel-options read-ch internal-error-ch error-ch write-ch handlers reconnect-count closed] :as conf 
                                  :or {group (NioEventLoopGroup.)
-                                      read-group (NioEventLoopGroup. 1)
+                                      read-group (NioEventLoopGroup.)
                                       reconnect-count (AtomicInteger. (int 0))
                                       closed (AtomicBoolean. false)
-                                      read-ch (chan 5) internal-error-ch (chan 100) error-ch (chan 100) write-ch (chan 10)}}]
+                                      read-ch (chan 100) internal-error-ch (chan 100) error-ch (chan 100) write-ch (chan 100)}}]
   "Start a Client instance with read-ch, write-ch and internal-error-ch"
   (try
   (let [g (if group group (NioEventLoopGroup.))
