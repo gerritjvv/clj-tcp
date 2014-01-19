@@ -67,7 +67,8 @@
     (channelRead0 [^ChannelHandlerContext ctx in]
       ;(prn "channel read 0")
       ;(info "channelRead0")
-      (>!! read-ch (if (instance? ByteBuf in) (buffer->bytes in)  in))
+      (let [d (if (instance? ByteBuf in) (buffer->bytes in) in)]
+         (go (>! read-ch d)))    
       )
     (exceptionCaught [^ChannelHandlerContext ctx cause]
       (error "Client-handler exception caught " cause)
