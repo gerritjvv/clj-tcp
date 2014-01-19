@@ -68,8 +68,9 @@
       ;(prn "channel read 0")
       ;(info "channelRead0")
       (let [d (if (instance? ByteBuf in) (buffer->bytes in) in)]
-         (go (>! read-ch d)))    
-      )
+         (try 
+           (go (>! read-ch d))
+           (catch java.lang.AssertionError e (>!! read-ch d)))))
     (exceptionCaught [^ChannelHandlerContext ctx cause]
       (error "Client-handler exception caught " cause)
       (error cause (>!! internal-error-ch [cause ctx]) )
