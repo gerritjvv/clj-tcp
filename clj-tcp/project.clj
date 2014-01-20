@@ -6,7 +6,7 @@
   :dependencies [ 
                   [org.clojure/tools.logging "0.2.3"]
 		  [midje "1.6-alpha2" :scope "test"]
-
+      
 		  [io.netty/netty-all "4.0.13.Final"]
       [com.taoensso/nippy "2.5.2"]
       [org.clojure/core.async "0.1.267.0-0d7780-alpha"]

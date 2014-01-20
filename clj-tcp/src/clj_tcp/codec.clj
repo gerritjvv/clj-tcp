@@ -29,7 +29,7 @@
 
 (defn default-encoder 
   ([]
-    (default-encoder false))
+    (default-encoder true))
   ([^Boolean prever-direct]
   "Acceps 1: a callable and calls it with the ByteBuf as argument
           2: a string 
@@ -41,8 +41,8 @@
     (encode[ctx msg ^ByteBuf buff]
       (cond
           (instance? IFn msg) (msg buff)
-          (instance? String) (.writeBytes buff (.getBytes ^String msg "UTF-8"))
-          (instance? ByteBuf) (.writeBytes buff ^ByteBuf msg)
+          (instance? String msg) (.writeBytes buff (.getBytes ^String msg "UTF-8"))
+          (instance? ByteBuf msg) (.writeBytes buff ^ByteBuf msg)
           :else (.writeBytes buff ^bytes msg))))))
           
   
