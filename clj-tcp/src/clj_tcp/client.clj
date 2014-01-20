@@ -68,9 +68,7 @@
       ;(prn "channel read 0")
       ;(info "channelRead0")
       (let [d (if (instance? ByteBuf in) (buffer->bytes in) in)]
-         (try 
-           (go (>! read-ch d))
-           (catch java.lang.AssertionError e (>!! read-ch d)))))
+         (>!! read-ch d)))
     (exceptionCaught [^ChannelHandlerContext ctx cause]
       (error "Client-handler exception caught " cause)
       (error cause (>!! internal-error-ch [cause ctx]) )
@@ -178,7 +176,7 @@
                                       read-group (NioEventLoopGroup.)
                                       reconnect-count (AtomicInteger. (int 0))
                                       closed (AtomicBoolean. false)
-                                      read-ch (chan 100) internal-error-ch (chan 100) error-ch (chan 100) write-ch (chan 100)}}]
+                                      read-ch (chan 1000) internal-error-ch (chan 100) error-ch (chan 100) write-ch (chan 1000)}}]
   "Start a Client instance with read-ch, write-ch and internal-error-ch"
   (try
   (let [g (if group group (NioEventLoopGroup.))
