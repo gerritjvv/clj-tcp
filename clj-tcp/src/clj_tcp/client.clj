@@ -338,7 +338,7 @@
      (go
 	      (loop [local-client client]
 	          (let [ write-ch (:write-ch local-client)
-	                 v (<!! write-ch)]
+	                 v (<! write-ch)]
 	               (cond  (instance? Stop v) nil
                         (instance? Reconnected v) (do
 	                                                        (error ">>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>  Writer received reconnected " (:client v))
