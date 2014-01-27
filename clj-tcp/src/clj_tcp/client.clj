@@ -18,7 +18,7 @@
             [io.netty.bootstrap Bootstrap]
             [io.netty.channel.socket.nio NioSocketChannel]))
 
-(defrecord Client [group channel-f write-ch read-ch internal-error-ch error-ch ^AtomicInteger reconnect-count ^AtomicBoolean closed])
+(defrecord Client [group read-group channel-f write-ch read-ch internal-error-ch error-ch ^AtomicInteger reconnect-count ^AtomicBoolean closed])
 
 
 (defrecord Reconnected [^Client client cause])
@@ -42,18 +42,28 @@
 (defonce SO-TIMEOUT ChannelOption/SO_TIMEOUT)
 (defonce TCP-NODELAY ChannelOption/TCP_NODELAY)
 
-(defn close-client [{:keys [group ^ChannelFuture channel-f]}]
+(defn close-client [{:keys [^NioEventLoopGroup group ^NioEventLoopGroup read-group ^ChannelFuture channel-f]}]
   (let [^Channel channel (.channel channel-f)]
+    (-> group .shutdownGracefully (.await 2000))
+    (-> read-group .shutdownGracefully (.await 2000))
+    
     (.await ^ChannelFuture (.disconnect channel))
-    (.await ^ChannelFuture (.close channel))))
+    (.await ^ChannelFuture (.close channel))
+    ))
+
 
 (defn close-all [{:keys [group closed] :as conf}]
-  
-  (try 
-    (close-client conf)
-    (catch Exception e (error e (str "Error while closing " conf))))
-  
-   (.set ^AtomicBoolean closed true))
+  (future
+	  (try 
+	    (close-client conf)
+	    (catch Exception e (error e (str "Error while closing " conf))))
+	  
+	   (.set ^AtomicBoolean closed true)
+     true
+      ))
+
+(defn close-and-wait [conf]
+  (deref (close-all conf)))
 
 
 (defn client-handler [{:keys [group read-ch internal-error-ch write-ch]}]
@@ -170,10 +180,9 @@
 
 
 (defn start-client 
-  ([host port {:keys [group read-group 
+  ([host port {:keys [group read-group
                       channel-options read-ch internal-error-ch error-ch write-ch handlers reconnect-count closed] :as conf 
-                                 :or {group (NioEventLoopGroup.)
-                                      read-group (NioEventLoopGroup.)
+                                 :or {
                                       reconnect-count (AtomicInteger. (int 0))
                                       closed (AtomicBoolean. false)
                                       read-ch (chan 1000) internal-error-ch (chan 100) error-ch (chan 100) write-ch (chan 1000)}}]
@@ -193,7 +202,7 @@
       ^Bootstrap (.handler ^ChannelInitializer (client-channel-initializer conf)))
     (let [ch-f (.connect b)]
       (.sync ch-f)
-      (->Client g ch-f write-ch read-ch internal-error-ch error-ch reconnect-count closed)))
+      (->Client g read-group ch-f write-ch read-ch internal-error-ch error-ch reconnect-count closed)))
   (catch Exception e (do
                        (error e e)
                        (>!! internal-error-ch [e 1])
@@ -230,8 +239,8 @@
                                   retry-limit
                                   write-buff read-buff error-buff
                                   write-timeout read-timeout
-                                  write-group 
-                                  read-group
+                                  write-group-threads 
+                                  read-group-threads
                                  ] 
                            :or {handlers [default-encoder] retry-limit 5
                                 write-buff 10 read-buff 5 error-buff 1000 reuse-client false write-timeout 1500 read-timeout 1500
@@ -243,8 +252,8 @@
          read-ch (chan read-buff)
          internal-error-ch (chan error-buff)
          error-ch (chan error-buff)
-         g (if write-group write-group (NioEventLoopGroup.))
-         n-read-group (if read-group read-group (NioEventLoopGroup.))
+         g (if write-group-threads (NioEventLoopGroup. (long write-group-threads)) (NioEventLoopGroup.) )
+         n-read-group (if read-group-threads (NioEventLoopGroup. (long read-group-threads)) (NioEventLoopGroup.))
          conf {:group g :read-group n-read-group 
                :write-ch write-ch :read-ch read-ch :internal-error-ch internal-error-ch :error-ch error-ch :handlers handlers
                :channel-options channel-options
@@ -297,9 +306,9 @@
 						                (error "<<<<<<<<<===============  Retry limit reached, closing all channels and connections ===========>>>>>>>>>>>>>")
 						                
                             (write-poison local-client)
-						                ;(try 
-                             ;    (close-all local-client)
-                              ;   (catch Exception e (error e e)))
+						                (try 
+                                 (close-all local-client);we do not wait for closing, this consumes extra resources but reconnects are faster
+                                 (catch Exception e (error e e)))
                             (>! error-ch [v o]) ;write the exception to the error-ch
 					                  nil
 						              )
