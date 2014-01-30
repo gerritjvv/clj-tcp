@@ -234,6 +234,10 @@
 	(go (>! read-ch (->Poison) ))
   (go (>! internal-error-ch [(->Poison) 1] )))
 
+(defn- get-default-threads []
+  ;for threads we choose a reasonable default
+    (NioEventLoopGroup. (int (/ (-> (Runtime/getRuntime) .availableProcessors) 2))))
+
 (defn client [host port {:keys [handlers
                                   channel-options ;io.netty.channel options a sequence of [option val] e.g. [[option val] ... ]
                                   retry-limit
@@ -252,8 +256,8 @@
          read-ch (chan read-buff)
          internal-error-ch (chan error-buff)
          error-ch (chan error-buff)
-         g (if write-group-threads (NioEventLoopGroup. (long write-group-threads)) (NioEventLoopGroup.) )
-         n-read-group (if read-group-threads (NioEventLoopGroup. (long read-group-threads)) (NioEventLoopGroup.))
+         g (if write-group-threads (NioEventLoopGroup. (int write-group-threads)) (NioEventLoopGroup. (get-default-threads)) )
+         n-read-group (if read-group-threads (NioEventLoopGroup. (int read-group-threads)) (NioEventLoopGroup. (get-default-threads)))
          conf {:group g :read-group n-read-group 
                :write-ch write-ch :read-ch read-ch :internal-error-ch internal-error-ch :error-ch error-ch :handlers handlers
                :channel-options channel-options
