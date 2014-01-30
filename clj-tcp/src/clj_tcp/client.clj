@@ -236,7 +236,7 @@
 
 (defn- get-default-threads []
   ;for threads we choose a reasonable default
-    (NioEventLoopGroup. (int (/ (-> (Runtime/getRuntime) .availableProcessors) 2))))
+    (int (/ (-> (Runtime/getRuntime) .availableProcessors) 2)))
 
 (defn client [host port {:keys [handlers
                                   channel-options ;io.netty.channel options a sequence of [option val] e.g. [[option val] ... ]
