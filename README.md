@@ -43,6 +43,35 @@ The binaries are published to https://clojars.org/clj-tcp
 
 ```
 
+### Error handling
+
+The connection is 100% asynchronous meaning that errors will also appear and be notified asynchronous.
+Each connection provides a channel on which exceptions are notified.
+
+Note:
+
+If too many exceptions are thrown, and the exceptions are not taken from the error channel, the connection will eventually block, i.e. in production you must listen for exceptions.
+
+Reading using go loops (preferred)
+
+```clojure
+;reading and printing exceptions
+(require '[clojure.core.async :refer [go <! ]])
+(go-loop []
+  (when-let [[e v] (<! (:error-ch c))]
+    (prn "Error " e) (.printStackTrace e)
+    (recur)))
+``` 
+
+Reading using blocking methods
+
+```
+;;inside another thread
+(while true
+   (if-let [[e v] (read-error c 1000)]
+      (prn "Error " e)))
+```    
+
 ### Configuration
 
 The following config options can be passed to the client
