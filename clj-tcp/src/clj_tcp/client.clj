@@ -211,7 +211,7 @@
 (defn read-print-ch [n ch]
   (go 
     (loop [ch1 ch]
-      (let [c (<! ch1)]
+      (if-let [c (<! ch1)]
          (if (instance? Reconnected c)
            (do 
              (recur (-> c :client :read-ch)))
@@ -251,7 +251,7 @@
                                 } }]
   
   ;(info "Creating read-ch with read-buff " read-buff " write-ch with write-buff " write-buff)
-  (let [ write-lock-ch nil ;(create-write-lock-ch max-concurrent-writes)
+  (let [ 
          write-ch (chan write-buff) 
          read-ch (chan read-buff)
          internal-error-ch (chan error-buff)
@@ -273,7 +273,8 @@
     (go 
       (loop [local-client client]
         ;(info "wait -internal error: " internal-error-ch)
-        (let [[v o] (<! internal-error-ch)
+       (if-let [x (<! internal-error-ch)]
+        (let [[v o] x
               reconnect-count (.get ^AtomicInteger (:reconnect-count local-client))
               ]
           (error "read error from internal-error-ch " v " reconnect count " reconnect-count)
@@ -343,7 +344,7 @@
 		                      
 		                      (recur c)))))
 		           
-			          ))))
+			          )))))
 		                
                 
               
@@ -352,6 +353,7 @@
 	      (loop [local-client client]
 	          (let [ write-ch (:write-ch local-client)
 	                 v (<! write-ch)]
+             (if v
 	               (cond  (instance? Stop v) nil
                         (instance? Reconnected v) (do
 	                                                        (error ">>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>  Writer received reconnected " (:client v))
@@ -366,9 +368,7 @@
 											                            (thread (>!! internal-error-ch [e 1]))
 			                                    )))
                              (recur local-client))
-	                      )))
-                 
-                  )
+	                      )))))
 	    
     
 		    client))         
