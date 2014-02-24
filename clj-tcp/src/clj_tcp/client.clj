@@ -134,9 +134,12 @@
                                        )))))))
            
 
-(defn write! [{:keys [write-ch]} v]
+(defn write! [client v]
   "Writes and blocks if the write-ch is full"
-  (>!! write-ch v))
+  (if (-> client ^ChannelFuture (:channel-f) ^Channel (.channel) (.isOpen))
+    (>!! (:write-ch client) v)
+    (throw (RuntimeException. "Client closed"))))
+  
 
 (defn read! 
   ([{:keys [read-ch]} timeout-ms]
@@ -166,18 +169,13 @@
 (defn- do-write [^Client client write-lock-ch ^bytes v close-after-write {:keys [internal-error-ch] :as conf}]
   "Writes to the channel, this operation is non blocking and a exception listener is added to the write's ChannelFuture
    to send any errors to the internal-error-ch"
-  (try 
-    (do 
-      ;(info "Write and flush value " v)
-     (let [ch-f (-> client ^ChannelFuture (:channel-f) ^Channel (.channel) ^ChannelFuture (.writeAndFlush v) (.addListener ^ChannelFutureListener (exception-listener write-lock-ch v conf)))]
-       (if close-after-write
-         (.addListener ch-f ^ChannelFutureListener (close-listener client write-lock-ch conf)))))
-     (catch Exception e (do 
-                          ;(go (>! write-lock-ch 1));if exception release write lock
-                          (error e (str "Error in do-write " e))
-                          (>!! internal-error-ch [e v])
-                          ))))
-
+   (let [^Channel channel (-> client ^ChannelFuture (:channel-f) ^Channel (.channel))]
+     (if (.isOpen channel)
+	     (let [ch-f (-> channel ^ChannelFuture (.writeAndFlush v) (.addListener ^ChannelFutureListener (exception-listener write-lock-ch v conf)))]
+	       (if close-after-write
+	         (.addListener ch-f ^ChannelFutureListener (close-listener client write-lock-ch conf))))
+       (throw (RuntimeException. "Channel closed")))))
+       
 
 (defn start-client 
   ([host port {:keys [group read-group
@@ -362,10 +360,10 @@
 						             :else
 					                (do 
 	                            (try ;else write the value to the client channel
-	                            (do-write local-client nil v false conf)
+	                             (do-write local-client nil v false conf)
 			                         (catch Exception e (do ;send any exception to the internal-error-ch
 											                            (error "!!!!! Error while writing " e)  
-											                            (thread (>!! internal-error-ch [e 1]))
+											                            (thread (>!! internal-error-ch [e v]))
 			                                    )))
                              (recur local-client))
 	                      )))))

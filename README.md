@@ -16,7 +16,7 @@ Contact: feel free to contact me at gerritjvv@gmail.com
 
 The binaries are published to https://clojars.org/clj-tcp
 
-```[clj-tcp "0.2.17-SNAPSHOT"]```
+```[clj-tcp "0.3.0-SNAPSHOT"]```
 
 
 ```clojure
