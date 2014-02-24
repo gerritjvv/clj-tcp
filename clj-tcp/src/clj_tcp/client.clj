@@ -96,8 +96,8 @@
          (let [^ChannelPipeline pipeline (.pipeline ch)] 
            ;(info "create pipeline handlers : " handlers)
 	         (if handlers
-	            (PipelineUtil/addLast pipeline group (map #(%) handlers)))
- 	            (PipelineUtil/addLast pipeline read-group [(client-handler conf)]))
+	            (PipelineUtil/addLast pipeline group  (map #(%) handlers))) ;try adding group
+ 	            (PipelineUtil/addLast pipeline read-group [(client-handler conf)])) ;try adding read-group
          
          (catch Exception e (do 
                               (error (str "channel initializer error " e) e)

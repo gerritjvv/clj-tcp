@@ -17,4 +17,8 @@ public class PipelineUtil {
 		pipeline.addLast(group, handlers.toArray(new ChannelHandler[0]));
 	}
 	
+	public static final void addLast(ChannelPipeline pipeline, Collection<ChannelHandler> handlers){
+		pipeline.addLast(handlers.toArray(new ChannelHandler[0]));
+	}
+	
 }

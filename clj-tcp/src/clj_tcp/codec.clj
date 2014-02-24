@@ -9,6 +9,7 @@
           [io.netty.channel ChannelHandlerContext]
           [io.netty.handler.codec MessageToByteEncoder MessageToMessageDecoder ByteToMessageDecoder]
           [java.util List]
+          [java.util.concurrent RejectedExecutionException]
           [java.util.concurrent Callable]
   ))
 
@@ -38,6 +39,10 @@
   "
   (proxy [MessageToByteEncoder]
     [prever-direct]
+    (exceptionCaught [ctx e]
+        ;if the event nio loop was shutdown because all events are handled, we ignore
+        (if (not (instance? RejectedExecutionException e))
+          (error e e)))
     (encode[ctx msg ^ByteBuf buff]
       (cond
           (instance? IFn msg) (msg buff)
