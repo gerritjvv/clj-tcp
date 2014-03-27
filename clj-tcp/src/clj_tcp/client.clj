@@ -186,7 +186,7 @@
                                       read-ch (chan 1000) internal-error-ch (chan 100) error-ch (chan 100) write-ch (chan 1000)}}]
   "Start a Client instance with read-ch, write-ch and internal-error-ch"
   (try
-  (let [g (if group group (NioEventLoopGroup.))
+  (let [g (if group group (NioEventLoopGroup. (get-default-threads)))
         b (Bootstrap.)]
     
     ;add channel options if specified
