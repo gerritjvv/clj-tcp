@@ -18,6 +18,8 @@
             [io.netty.bootstrap Bootstrap]
             [io.netty.channel.socket.nio NioSocketChannel]))
 
+(declare get-default-threads)
+
 (defrecord Client [group read-group channel-f write-ch read-ch internal-error-ch error-ch ^AtomicInteger reconnect-count ^AtomicBoolean closed])
 
 
@@ -220,12 +222,6 @@
 (defn read-print-in [{:keys [read-ch]}]
   (read-print-ch "read" read-ch))
 
-
-(defn- create-write-lock-ch [max-concurrent-writes]
-  (let [write-lock-ch (chan (dropping-buffer max-concurrent-writes))]
-    (go 
-      (doseq [i (range max-concurrent-writes)]
-        (>! write-lock-ch 1)))))
 
 (defn write-poison [{:keys [write-ch read-ch internal-error-ch]}]
   (go (>! write-ch [(->Poison) 1] ))
