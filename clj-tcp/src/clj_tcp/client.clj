@@ -107,10 +107,11 @@
                               )))
 	      )))
 
-(defn exception-listener [write-lock-ch v {:keys [internal-error-ch]}]
+(defn exception-listener
   "Returns a GenericFutureListener instance
    that on completion checks the Future, if any exception
    an error is sent to the error-ch"
+  [write-lock-ch v {:keys [internal-error-ch]}]
   (reify GenericFutureListener
     (operationComplete [this f]
        ;(go (>! write-lock-ch 1)) ;release write lock
@@ -122,8 +123,9 @@
 		                   (go (>! internal-error-ch [cause (->FailedWrite v)])))
 		           ))))))
 
-(defn close-listener [^Client client write-lock-ch {:keys [internal-error-ch]}]
+(defn close-listener
   "Close a client after a write operation has been completed"
+  [^Client client write-lock-ch {:keys [internal-error-ch]}]
   (reify GenericFutureListener
     (operationComplete [this f]
        ;(go (>! write-lock-ch 1))
@@ -136,25 +138,27 @@
                                        )))))))
            
 
-(defn write! [client v]
+(defn write!
   "Writes and blocks if the write-ch is full"
+  [client v]
   (if (-> client ^ChannelFuture (:channel-f) ^Channel (.channel) (.isOpen))
     (>!! (:write-ch client) v)
     (throw (RuntimeException. "Client closed"))))
   
 
-(defn read! 
+(defn read!
+  "Reads from the read-ch and blocks if no data is available"
   ([{:keys [read-ch]} timeout-ms]
     (first 
       (alts!!
 		     [read-ch
 		     (timeout timeout-ms)])))
   ([{:keys [read-ch]}]
-  "Reads from the read-ch and blocks if no data is available"
   (<!! read-ch)))
 
 
 (defn read-error 
+   "Reads from the error-ch and blocks if no data is available"
    ([{:keys [error-ch]} timeout-ms]
      (if error-ch
 		    (first 
@@ -163,14 +167,14 @@
 				     (timeout timeout-ms)]))))
 		    
   ([{:keys [error-ch]}]
-  "Reads from the error-ch and blocks if no data is available"
-    (if error-ch (<!! error-ch))))
+    (when error-ch (<!! error-ch))))
 
 
 
-(defn- do-write [^Client client write-lock-ch ^bytes v close-after-write {:keys [internal-error-ch] :as conf}]
+(defn- do-write
   "Writes to the channel, this operation is non blocking and a exception listener is added to the write's ChannelFuture
    to send any errors to the internal-error-ch"
+   [^Client client write-lock-ch ^bytes v close-after-write {:keys [internal-error-ch] :as conf}]
    (let [^Channel channel (-> client ^ChannelFuture (:channel-f) ^Channel (.channel))]
      (if (.isOpen channel)
 	     (let [ch-f (-> channel ^ChannelFuture (.writeAndFlush v) (.addListener ^ChannelFutureListener (exception-listener write-lock-ch v conf)))]
@@ -180,13 +184,13 @@
        
 
 (defn start-client 
+  "Start a Client instance with read-ch, write-ch and internal-error-ch"
   ([host port {:keys [group read-group
                       channel-options read-ch internal-error-ch error-ch write-ch handlers reconnect-count closed] :as conf 
                                  :or {
                                       reconnect-count (AtomicInteger. (int 0))
                                       closed (AtomicBoolean. false)
                                       read-ch (chan 1000) internal-error-ch (chan 100) error-ch (chan 100) write-ch (chan 1000)}}]
-  "Start a Client instance with read-ch, write-ch and internal-error-ch"
   (try
   (let [g (if group group (NioEventLoopGroup. (get-default-threads)))
         b (Bootstrap.)]
