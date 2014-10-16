@@ -7,9 +7,6 @@ This library aims to provide this, you send, bytes and receives bytes, what the 
 
 The code uses ```clojure.core.async``` heavily to transmit messages for read, write and exceptions.
 
-
-Note: This library is still under construction, but you are welcom to look at the code and try it out.
-
 Contact: feel free to contact me at gerritjvv@gmail.com
 
 ## Usage
@@ -41,6 +38,25 @@ The binaries are published to https://clojars.org/clj-tcp
 (close-and-wait c)
 ;;calls close-all and waits on the future
 
+```
+
+## Netty and EventLoopGroup
+
+By default all client connections will share a global EventLoopGroup instance with threads=cpus/2 daemon=true.  
+This lowers resource usage, makes client creation faster and is the recommended way for netty.  
+
+See http://normanmaurer.me/presentations/2014-facebook-eng-netty/slides.html#1.0 for a best practices overview.  
+
+If you need to override this behaviour and create your own EventLoopGroup for a client,  
+the client function allows this for both writing and reading.  
+
+```clojure
+
+;;this will create a EventLoopGroup(1) for writing and a EventLoopGroup(2) for reading.
+;;on close these EventLoopGroup(s) will be shutdown.
+(def c (client "localhost" 2324 {:write-group-threads 1 :read-group-threads 2}))
+
+(close-and-wait c)
 ```
 
 ### Error handling

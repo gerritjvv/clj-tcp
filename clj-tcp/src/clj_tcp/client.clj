@@ -2,7 +2,7 @@
    (:require [clojure.tools.logging :refer [info error]]
              [clj-tcp.codec :refer [byte-decoder default-encoder buffer->bytes]]
              [clojure.core.async.impl.protocols :as asyncp]
-             [clojure.core.async :refer [chan >!! go >! <! <!! thread timeout alts!! dropping-buffer]])
+             [clojure.core.async :refer [chan >!! go >! <! <!! thread timeout alts!! dropping-buffer sliding-buffer]])
    (:import  
             
             [clj_tcp.util PipelineUtil]
@@ -11,6 +11,7 @@
             [java.util List]
             [java.util.concurrent.atomic AtomicInteger AtomicBoolean]
             [io.netty.util CharsetUtil]
+            [io.netty.util.concurrent DefaultThreadFactory]
             [io.netty.buffer Unpooled ByteBuf ByteBufUtil]
             [io.netty.channel ChannelOption SimpleChannelInboundHandler ChannelPipeline ChannelFuture Channel ChannelHandler ChannelInboundHandlerAdapter ChannelInitializer ChannelInitializer ChannelHandlerContext ChannelFutureListener]
             [io.netty.channel.nio NioEventLoopGroup]
@@ -18,11 +19,12 @@
             [io.netty.bootstrap Bootstrap]
             [io.netty.channel.socket.nio NioSocketChannel]))
 
-(declare get-default-threads)
+(defn- get-default-threads []
+       ;for threads we choose a reasonable default
+       (let [n (int (/ (-> (Runtime/getRuntime) .availableProcessors) 2))]
+            (if (> n 0) n 1)))
 
 (defrecord Client [group read-group channel-f write-ch read-ch internal-error-ch error-ch ^AtomicInteger reconnect-count ^AtomicBoolean closed])
-
-
 (defrecord Reconnected [^Client client cause])
 (defrecord Pause [time])
 (defrecord Stop [])
@@ -44,25 +46,31 @@
 (defonce SO-TIMEOUT ChannelOption/SO_TIMEOUT)
 (defonce TCP-NODELAY ChannelOption/TCP_NODELAY)
 
+;by default all clients will share this event loop group
+(defonce ^NioEventLoopGroup EVENT-LOOP-GROUP (NioEventLoopGroup. (get-default-threads) (DefaultThreadFactory. "global-netty-nio-events" true)))
+
 (defn close-client [{:keys [^NioEventLoopGroup group ^NioEventLoopGroup read-group ^ChannelFuture channel-f]}]
-  (let [^Channel channel (.channel channel-f)]
-    (-> group .shutdownGracefully (.await 2000))
-    (-> read-group .shutdownGracefully (.await 2000))
-    
-    (.await ^ChannelFuture (.disconnect channel))
-    (.await ^ChannelFuture (.close channel))
-    ))
+      (let [^Channel channel (.channel channel-f)]
+
+           ;only shutdown the event loop groups if they are uniquely created for the connection
+           (when-not (identical? group EVENT-LOOP-GROUP)
+                     (-> group .shutdownGracefully (.await 2000)))
+
+           (when-not (identical? read-group EVENT-LOOP-GROUP)
+                     (-> read-group .shutdownGracefully (.await 2000)))
+
+           (.await ^ChannelFuture (.disconnect channel))
+           (.await ^ChannelFuture (.close channel))
+           ))
 
 
 (defn close-all [{:keys [group closed] :as conf}]
   (future
-	  (try 
+	  (try
 	    (close-client conf)
 	    (catch Exception e (error e (str "Error while closing " conf))))
-	  
 	   (.set ^AtomicBoolean closed true)
-     true
-      ))
+     true))
 
 (defn close-and-wait [conf]
   (deref (close-all conf)))
@@ -72,9 +80,6 @@
   (proxy [SimpleChannelInboundHandler]
     []
     (channelActive [^ChannelHandlerContext ctx]
-      ;(prn "channelActive")
-      ;(info "channelActive")
-      ;(.writeAndFlush ctx (Unpooled/copiedBuffer "Netty Rocks1" CharsetUtil/UTF_8))
       )
     (channelRead0 [^ChannelHandlerContext ctx in]
       ;(prn "channel read 0")
@@ -104,8 +109,7 @@
          (catch Exception e (do 
                               (error (str "channel initializer error " e) e)
                               (go (>! internal-error-ch [e nil]))
-                              )))
-	      )))
+                              ))))))
 
 (defn exception-listener
   "Returns a GenericFutureListener instance
@@ -114,14 +118,12 @@
   [write-lock-ch v {:keys [internal-error-ch]}]
   (reify GenericFutureListener
     (operationComplete [this f]
-       ;(go (>! write-lock-ch 1)) ;release write lock
        (if (not (.isSuccess ^Future f))
          (do 
              (error "=======>>>>>>>>>>>>>>>>>>>>>>>>>>> Write failed: " f)
 		         (if-let [cause (.cause ^Future f)]
 		               (do (error "operation complete cause " cause)
-		                   (go (>! internal-error-ch [cause (->FailedWrite v)])))
-		           ))))))
+		                   (go (>! internal-error-ch [cause (->FailedWrite v)])))))))))
 
 (defn close-listener
   "Close a client after a write operation has been completed"
@@ -134,8 +136,7 @@
                   (close-client client)
                   (catch Exception e (do
                                        (error (str "Close listener error " e)  e)
-                                       (>!! internal-error-ch [e nil])
-                                       )))))))
+                                       (>!! internal-error-ch [e nil]))))))))
            
 
 (defn write!
@@ -192,7 +193,7 @@
                                       closed (AtomicBoolean. false)
                                       read-ch (chan 1000) internal-error-ch (chan 100) error-ch (chan 100) write-ch (chan 1000)}}]
   (try
-  (let [g (if group group (NioEventLoopGroup. (get-default-threads)))
+  (let [g (if group group EVENT-LOOP-GROUP)
         b (Bootstrap.)]
     
     ;add channel options if specified
@@ -232,10 +233,6 @@
 	(go (>! read-ch (->Poison) ))
   (go (>! internal-error-ch [(->Poison) 1] )))
 
-(defn- get-default-threads []
-  ;for threads we choose a reasonable default
-    (int (/ (-> (Runtime/getRuntime) .availableProcessors) 2)))
-
 (defn client [host port {:keys [handlers
                                   channel-options ;io.netty.channel options a sequence of [option val] e.g. [[option val] ... ]
                                   retry-limit
@@ -246,16 +243,16 @@
                                  ] 
                            :or {handlers [default-encoder] retry-limit 5
                                 write-buff 10 read-buff 5 error-buff 1000 reuse-client false write-timeout 1500 read-timeout 1500
-                                } }]
+                                }}]
   
   ;(info "Creating read-ch with read-buff " read-buff " write-ch with write-buff " write-buff)
   (let [ 
          write-ch (chan write-buff) 
          read-ch (chan read-buff)
          internal-error-ch (chan error-buff)
-         error-ch (chan error-buff)
-         g (if write-group-threads (NioEventLoopGroup. (int write-group-threads)) (NioEventLoopGroup. (get-default-threads)) )
-         n-read-group (if read-group-threads (NioEventLoopGroup. (int read-group-threads)) (NioEventLoopGroup. (get-default-threads)))
+         error-ch (chan (sliding-buffer error-buff))
+         g (if write-group-threads (NioEventLoopGroup. (int write-group-threads)) EVENT-LOOP-GROUP)
+         n-read-group (if read-group-threads (NioEventLoopGroup. (int read-group-threads)) EVENT-LOOP-GROUP)
          conf {:group g :read-group n-read-group 
                :write-ch write-ch :read-ch read-ch :internal-error-ch internal-error-ch :error-ch error-ch :handlers handlers
                :channel-options channel-options
