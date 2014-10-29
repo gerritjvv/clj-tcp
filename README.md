@@ -97,7 +97,8 @@ The following config options can be passed to the client
 
 (import 'io.netty.channel.ChannelOption)
 
-(def c (client "localhost" 2324 {:handlers [default-encoder] ; ChannelHandlers that will be added to the Channel pipeline
+(def c (client "localhost" 2324 { ;:decoder (fn [read-ch ^ByteBuf in] (>!! read-ch "hi")) decoder allows you to overwrite the default ByteBuf to bytes decoding.
+                                  :handlers [default-encoder] ; ChannelHandlers that will be added to the Channel pipeline
                                   channel-options [[ChannelOption/TCP-NODELAY true][ChannelOption/SO_RCVBUF (int 5242880)]] ;io.netty.channel options a sequence of [option val] e.g. [[option val] ... ]
                                   retry-limit 5 ; on write error the client will retry the write this amount of times
                                   write-buff 100 ; writes are async, this is the buffer thats used for the clojure.async.channel
@@ -106,6 +107,17 @@ The following config options can be passed to the client
                                   write-group-threads 4 ;threads for writing
                                   read-group-threads 4  ;threads for reading
         ))
+```
+
+## Memory
+
+By default and for ease of use the decoder used by the client copies the ByteBuf content to a byte array.  
+This is not very memory efficient, but for allot of application doesn't matter.  
+If you want to avoid this copying and directly use the ByteBuf specify the following decoder:  
+
+```clojure
+(defn copy-bytebuf [read-ch ^ByteBuf buff]
+  (>!! read-ch (.copy buff)))
 ```
 
 ## Contact

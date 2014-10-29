@@ -76,7 +76,7 @@
   (deref (close-all conf)))
 
 
-(defn client-handler [{:keys [group read-ch internal-error-ch write-ch]}]
+(defn client-handler [{:keys [group read-ch internal-error-ch write-ch]} decoder]
   (proxy [SimpleChannelInboundHandler]
     []
     (channelActive [^ChannelHandlerContext ctx]
@@ -84,16 +84,17 @@
     (channelRead0 [^ChannelHandlerContext ctx in]
       ;(prn "channel read 0")
       ;(info "channelRead0")
-      (let [d (if (instance? ByteBuf in) (buffer->bytes in) in)]
-         (>!! read-ch d)))
+      (decoder in))
     (exceptionCaught [^ChannelHandlerContext ctx cause]
       (error "Client-handler exception caught " cause)
       (error cause (>!! internal-error-ch [cause ctx]) )
       (.close ctx))))
 
-    
+(defn- default-decoder [read-ch in]
+       (let [d (if (instance? ByteBuf in) (buffer->bytes in) in)]
+            (>!! read-ch d)))
 
-(defn ^ChannelInitializer client-channel-initializer [{:keys [^EventExecutorGroup group ^EventExecutorGroup read-group read-ch internal-error-ch write-ch handlers] :as conf}]
+(defn ^ChannelInitializer client-channel-initializer [{:keys [^EventExecutorGroup group ^EventExecutorGroup read-group read-ch internal-error-ch write-ch handlers decoder] :as conf}]
    (proxy [ChannelInitializer]
 	    []
 	    (initChannel [^Channel ch]
@@ -104,7 +105,10 @@
            ;(info "create pipeline handlers : " handlers)
 	         (if handlers
 	            (PipelineUtil/addLast pipeline group  (map #(%) handlers))) ;try adding group
- 	            (PipelineUtil/addLast pipeline read-group [(client-handler conf)])) ;try adding read-group
+
+           (if decoder
+             (PipelineUtil/addLast pipeline read-group [(client-handler conf (partial decoder read-ch))])
+             (PipelineUtil/addLast pipeline read-group [(client-handler conf (partial default-decoder read-ch))]))) ;try adding read-group
          
          (catch Exception e (do 
                               (error (str "channel initializer error " e) e)
@@ -191,7 +195,7 @@
                                  :or {
                                       reconnect-count (AtomicInteger. (int 0))
                                       closed (AtomicBoolean. false)
-                                      read-ch (chan 1000) internal-error-ch (chan 100) error-ch (chan 100) write-ch (chan 1000)}}]
+                                      read-ch (chan 10) internal-error-ch (chan 100) error-ch (chan 100) write-ch (chan 100)}}]
   (try
   (let [g (if group group EVENT-LOOP-GROUP)
         b (Bootstrap.)]
@@ -240,8 +244,10 @@
                                   write-timeout read-timeout
                                   write-group-threads 
                                   read-group-threads
+                                  decoder
                                  ] 
                            :or {handlers [default-encoder] retry-limit 5
+                                decoder nil
                                 write-buff 10 read-buff 5 error-buff 1000 reuse-client false write-timeout 1500 read-timeout 1500
                                 }}]
   
@@ -256,7 +262,8 @@
          conf {:group g :read-group n-read-group 
                :write-ch write-ch :read-ch read-ch :internal-error-ch internal-error-ch :error-ch error-ch :handlers handlers
                :channel-options channel-options
-               :reconnect-count (AtomicInteger.) :closed (AtomicBoolean. false)}
+               :reconnect-count (AtomicInteger.) :closed (AtomicBoolean. false)
+               :decoder decoder}
          client (start-client host port conf) ]
     ;(info "Creating client with max concurrent writes " max-concurrent-writes  " client " client)
     (if (not client)
