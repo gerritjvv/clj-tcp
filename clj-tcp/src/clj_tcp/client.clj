@@ -198,7 +198,7 @@
                                       read-ch (chan 10) internal-error-ch (chan 100) error-ch (chan 100) write-ch (chan 100)}}]
   (try
   (let [g (if group group EVENT-LOOP-GROUP)
-        b (Bootstrap.)]
+        b (doto (Bootstrap.) (.option CONNECT-TIMEOUT-MILLIS (int 10000)))]
     
     ;add channel options if specified
     (if channel-options
@@ -272,10 +272,10 @@
           (throw (RuntimeException. "Unable to create client" (first cause))))))
     
     ;async read off internal-error-ch
-    (go 
+    (thread
       (loop [local-client client]
         ;(info "wait -internal error: " internal-error-ch)
-       (if-let [x (<! internal-error-ch)]
+       (if-let [x (<!! internal-error-ch)]
         (let [[v o] x
               reconnect-count (.get ^AtomicInteger (:reconnect-count local-client))
               ]
@@ -291,7 +291,7 @@
 			                 ;  (catch Exception (.printStackTrace e)))
 			               
 			               (.set ^AtomicBoolean (:closed local-client) true)
-			               (>! error-ch [v o]) ;send the error channel
+			               (>!! error-ch [v o]) ;send the error channel
                     )
                 (catch Exception e (error e e)))
                )
@@ -303,7 +303,7 @@
 		            (if (instance? Exception v) (error v v)) 
 		              
 		            ;on error, pause writing, and close client
-			          (>! write-ch (->Pause 1000))
+			          (>!! write-ch (->Pause 1000))
 		            
 		           (let [c 
 		                 (loop [acc 0] ;reconnect in loop
@@ -316,7 +316,7 @@
 						                (try 
                                  (close-all local-client);we do not wait for closing, this consumes extra resources but reconnects are faster
                                  (catch Exception e (error e e)))
-                            (>! error-ch [v o]) ;write the exception to the error-ch
+                            (>!! error-ch [v o]) ;write the exception to the error-ch
 					                  nil
 						              )
 							            (let [v1 
@@ -326,8 +326,8 @@
 						                              ;if connected, send Reconnected instance to all channels and return c, this c is assigned to the loop using recur
                                           (.addAndGet ^AtomicInteger (:reconnect-count c) (int (inc reconnect-count)))
                                     
-													                (>! read-ch reconnected)
-													                (>! write-ch reconnected)
+													                (>!! read-ch reconnected)
+													                (>!! write-ch reconnected)
 											                    c)
 											              (catch Exception e (do
 											                                   (error (str "Error while doing retry " e) e)
@@ -341,8 +341,8 @@
 		                      (if (and (instance? FailedWrite o) c)
 		                        (do 
 		                            (info "retry failed write: ")
-		                            (<! (timeout 500))
-		                            (>! write-ch (:v o))))
+		                            (<!! (timeout 500))
+		                            (>!! write-ch (:v o))))
 		                      
 		                      (recur c)))))
 		           
@@ -351,23 +351,23 @@
                 
               
      ;async read off write-ch     
-     (go
+     (thread
 	      (loop [local-client client]
 	          (let [ write-ch (:write-ch local-client)
-	                 v (<! write-ch)]
+	                 v (<!! write-ch)]
              (if v
 	               (cond  (instance? Stop v) nil
                         (instance? Reconnected v) (do
 	                                                        (error ">>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>  Writer received reconnected " (:client v))
 	                                                        (recur (:client v))) ;if reconnect recur with the new client
-						            (instance? Pause v) (do (<! (timeout (:time v))) (recur local-client)) ;if pause, wait :time millis, then recur loop
+						            (instance? Pause v) (do (<!! (timeout (:time v))) (recur local-client)) ;if pause, wait :time millis, then recur loop
 						             :else
 					                (do 
 	                            (try ;else write the value to the client channel
 	                             (do-write local-client nil v false conf)
 			                         (catch Exception e (do ;send any exception to the internal-error-ch
-											                            (error "!!!!! Error while writing " e)  
-											                            (thread (>!! internal-error-ch [e v]))
+											                            (error "!!!!! Error while writing " e)
+                                                  (>!! internal-error-ch [e v])
 			                                    )))
                              (recur local-client))
 	                      )))))
