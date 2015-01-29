@@ -5,11 +5,11 @@
             :url "http://www.eclipse.org/legal/epl-v10.html"}
   :dependencies [ 
                   [org.clojure/tools.logging "0.2.3"]
-		  [midje "1.6-alpha2" :scope "test"]
+		          [midje "1.6-alpha2" :scope "test"]
       
-		  [io.netty/netty-all "4.0.24.Final"]
-      [com.taoensso/nippy "2.5.2"]
-      [org.clojure/core.async "0.1.267.0-0d7780-alpha"]
+		          [io.netty/netty-all "4.0.24.Final"]
+                  [com.taoensso/nippy "2.5.2"]
+                  [org.clojure/core.async "0.1.267.0-0d7780-alpha"]
                   [org.clojure/clojure "1.5.1"]]
 
  :javac-options ["-target" "1.6" "-source" "1.6" "-Xlint:-options"] 

@@ -215,7 +215,7 @@
   (catch Exception e (do
                        (error e e)
                        (>!! internal-error-ch [e 1])
-                       )))))
+                       nil)))))
     
 (defn read-print-ch [n ch]
   (go 
@@ -285,43 +285,36 @@
              (do ;if the same connection has been reconnected too many times close
                (try
 		              (do 
-                    (write-poison local-client)
-			               ;(try
-			                ;   (close-all local-client)
-			                 ;  (catch Exception (.printStackTrace e)))
-			               
+                           (write-poison local-client)
 			               (.set ^AtomicBoolean (:closed local-client) true)
-			               (>!! error-ch [v o]) ;send the error channel
-                    )
-                (catch Exception e (error e e)))
-               )
+			               (>!! error-ch [v o]) ;send the error channel)
+                (catch Exception e (error e e))))
              (do
 		          (if (instance? Poison v)
-		            (if local-client (close-client local-client)) ;poinson pill end loop
+		            (if local-client (close-client local-client)) ;poison pill end loop
 		          (do
-                (error "-------------------------- Exception in client " v)
+		            (error "-------------------------- Exception in client " v)
 		            (if (instance? Exception v) (error v v)) 
 		              
 		            ;on error, pause writing, and close client
-			          (>!! write-ch (->Pause 1000))
+			        (>!! write-ch (->Pause 1000))
 		            
-		           (let [c 
+		            (let [c
 		                 (loop [acc 0] ;reconnect in loop
 						            (if (>= acc retry-limit)
 						              (do
-		                        ;if limit reached send poinson to all channels and call close all on client, end loop
+		                                ;if limit reached send poinson to all channels and call close all on client, end loop
 						                (error "<<<<<<<<<===============  Retry limit reached, closing all channels and connections ===========>>>>>>>>>>>>>")
 						                
-                            (write-poison local-client)
+                                        (write-poison local-client)
 						                (try 
-                                 (close-all local-client);we do not wait for closing, this consumes extra resources but reconnects are faster
-                                 (catch Exception e (error e e)))
-                            (>!! error-ch [v o]) ;write the exception to the error-ch
-					                  nil
-						              )
+                                          (close-all local-client);we do not wait for closing, this consumes extra resources but reconnects are faster
+                                          (catch Exception e (error e e)))
+                                        (>!! error-ch [v o]) ;write the exception to the error-ch
+					                     nil)
 							            (let [v1 
-		                             (try 
-											              (let [c (start-client host port conf)
+		                                  (try
+		                                    (let [c (start-client host port conf)
 											                    reconnected (->Reconnected c v)]
 						                              ;if connected, send Reconnected instance to all channels and return c, this c is assigned to the loop using recur
                                           (.addAndGet ^AtomicInteger (:reconnect-count c) (int (inc reconnect-count)))
