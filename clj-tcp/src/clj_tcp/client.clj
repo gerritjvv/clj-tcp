@@ -152,7 +152,7 @@
 (defn write!
   "Writes and blocks if the write-ch is full"
   [client v]
-  (if (open? client))
+  (if (open? client)
     (>!! (:write-ch client) v)
     (throw (RuntimeException. "Client closed"))))
   
