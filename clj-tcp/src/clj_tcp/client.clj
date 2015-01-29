@@ -144,10 +144,13 @@
                                        (>!! internal-error-ch [e nil]))))))))
            
 
+(defn closed? [client]
+      (-> client ^ChannelFuture (:channel-f) ^Channel (.channel) (.isOpen)))
+
 (defn write!
   "Writes and blocks if the write-ch is full"
   [client v]
-  (if (-> client ^ChannelFuture (:channel-f) ^Channel (.channel) (.isOpen))
+  (if (closed? client)
     (>!! (:write-ch client) v)
     (throw (RuntimeException. "Client closed"))))
   
