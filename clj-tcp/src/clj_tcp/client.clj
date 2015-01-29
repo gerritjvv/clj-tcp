@@ -2,7 +2,7 @@
    (:require [clojure.tools.logging :refer [info error]]
              [clj-tcp.codec :refer [byte-decoder default-encoder buffer->bytes]]
              [clojure.core.async.impl.protocols :as asyncp]
-             [clojure.core.async :refer [chan >!! go >! <! <!! thread timeout alts!! dropping-buffer sliding-buffer]])
+             [clojure.core.async :refer [chan >!! go >! <! <!! thread timeout alts!! dropping-buffer sliding-buffer close!]])
    (:import  
             
             [clj_tcp.util PipelineUtil]
@@ -49,7 +49,7 @@
 ;by default all clients will share this event loop group
 (defonce ^NioEventLoopGroup EVENT-LOOP-GROUP (NioEventLoopGroup. (get-default-threads) (DefaultThreadFactory. "global-netty-nio-events" true)))
 
-(defn close-client [{:keys [^NioEventLoopGroup group ^NioEventLoopGroup read-group ^ChannelFuture channel-f]}]
+(defn close-client [{:keys [^NioEventLoopGroup group ^NioEventLoopGroup read-group ^ChannelFuture channel-f internal-error-ch write-ch]}]
       (let [^Channel channel (.channel channel-f)]
 
            ;only shutdown the event loop groups if they are uniquely created for the connection
@@ -61,7 +61,8 @@
 
            (.await ^ChannelFuture (.disconnect channel))
            (.await ^ChannelFuture (.close channel))
-           ))
+           (close! write-ch)
+           (close! internal-error-ch)))
 
 
 (defn close-all [{:keys [group closed] :as conf}]
@@ -215,7 +216,8 @@
   (catch Exception e (do
                        (error e e)
                        (>!! internal-error-ch [e 1])
-                       nil)))))
+                       nil
+                       )))))
     
 (defn read-print-ch [n ch]
   (go 
@@ -287,7 +289,7 @@
 		              (do 
                            (write-poison local-client)
 			               (.set ^AtomicBoolean (:closed local-client) true)
-			               (>!! error-ch [v o]) ;send the error channel)
+			               (>!! error-ch [v o])) ;send the error channel)
                 (catch Exception e (error e e))))
              (do
 		          (if (instance? Poison v)
@@ -366,7 +368,7 @@
 	                      )))))
 	    
     
-		    client))         
+		    client))
 
 
        
