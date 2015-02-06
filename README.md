@@ -87,6 +87,14 @@ Reading using blocking methods
       (prn "Error " e)))
 ```    
 
+### Monitoring
+
+The package `clj-tcp.monitor` has a global variable (with weak references to avoid a memory leak)  
+named `monitor-ctx`.  
+
+Functions like `report-counts` can be used to examine the context and monitor the numbre of open connections
+
+
 ### Configuration
 
 The following config options can be passed to the client

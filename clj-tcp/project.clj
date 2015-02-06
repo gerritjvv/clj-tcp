@@ -1,4 +1,4 @@
-(defproject clj-tcp "0.4.5"
+(defproject clj-tcp "0.4.7"
   :description "Fast clojure tcp library based on netty"
   :url "https://github.com/gerritjvv/clj-tcp"
   :license {:name "Eclipse Public License"
@@ -6,8 +6,8 @@
   :dependencies [ 
                   [org.clojure/tools.logging "0.2.3"]
 		          [midje "1.6-alpha2" :scope "test"]
-      
-		          [io.netty/netty-all "4.0.24.Final"]
+
+                  [io.netty/netty-all "4.1.0.Beta3"]
                   [com.taoensso/nippy "2.5.2"]
                   [org.clojure/core.async "0.1.267.0-0d7780-alpha"]
                   [org.clojure/clojure "1.5.1"]]
