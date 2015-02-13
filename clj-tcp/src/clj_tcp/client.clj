@@ -37,6 +37,9 @@
 (defonce ALLOW-HALF-CLOSURE ChannelOption/ALLOW_HALF_CLOSURE)
 (defonce AUTO-READ ChannelOption/AUTO_READ)
 (defonce CONNECT-TIMEOUT-MILLIS ChannelOption/CONNECT_TIMEOUT_MILLIS)
+(defonce WRITE-BUFFER-HIGH-WATER-MARK ChannelOption/WRITE_BUFFER_HIGH_WATER_MARK)
+(defonce WRITE-BUFFER-LOW-WATER-MARK ChannelOption/WRITE_BUFFER_LOW_WATER_MARK)
+
 (defonce MAX-MESSAGES-PER-READ ChannelOption/MAX_MESSAGES_PER_READ)
 (defonce MESSAGE-SIZE-ESTIMATOR ChannelOption/MESSAGE_SIZE_ESTIMATOR)
 (defonce RCVBUF-ALLOCATOR ChannelOption/RCVBUF_ALLOCATOR)
@@ -133,7 +136,8 @@
                                     (error "=======>>>>>>>>>>>>>>>>>>>>>>>>>>> Write failed: " f)
                                     (if-let [cause (.cause ^Future f)]
                                             (do (error "operation complete cause " cause)
-                                                (>!! internal-error-ch [cause (->FailedWrite v)]))))))))
+                                                ;(>!! internal-error-ch [cause (->FailedWrite v)])
+                                                )))))))
 
 (defn close-listener
       "Close a client after a write operation has been completed"
@@ -196,7 +200,9 @@
        (let [^Channel channel (-> client ^ChannelFuture (:channel-f) ^Channel (.channel))]
             (if (.isOpen channel)
               (do
-                (let [ch-f (-> channel ^ChannelFuture (.writeAndFlush v) (.addListener ^ChannelFutureListener (exception-listener write-lock-ch v conf)))]
+                (let [ch-f (-> channel ^ChannelFuture (.writeAndFlush v)
+                               ;(.addListener ^ChannelFutureListener (exception-listener write-lock-ch v conf))
+                               )]
                      (if close-after-write
                        (.addListener ch-f ^ChannelFutureListener (close-listener client write-lock-ch conf)))))
               (throw (RuntimeException. "Channel closed")))))
@@ -209,7 +215,7 @@
                    :or {
                         reconnect-count (AtomicInteger. (int 0))
                         closed          (AtomicBoolean. false)
-                        read-ch         (chan 10) internal-error-ch (chan 100) error-ch (chan 100) write-ch (chan 100)}}]
+                        read-ch         (chan 10) internal-error-ch (chan 100) error-ch (chan 100) write-ch (chan 10)}}]
         (try
           (let [g (if group group EVENT-LOOP-GROUP)
                 b (doto (Bootstrap.) (.option CONNECT-TIMEOUT-MILLIS (int 10000)))]

@@ -16,7 +16,7 @@
   (proxy [ChannelInboundHandlerAdapter]
     []
     (channelRead [^ChannelHandlerContext ctx msg]
-      (info "Received : " msg)
+      (prn "Received : " msg)
       (.writeAndFlush ctx msg))
     (channelReadComplete [^ChannelHandlerContext ctx]
       ;(-> ctx (.writeAndFlush Unpooled/EMPTY_BUFFER) 
@@ -28,8 +28,8 @@
 
 
 (defn close-server [{:keys [group channel-future]}]
-  (-> channel-future .channel .closeFuture .sync)
-  (.sync (.shutdownGracefully group)))
+  (-> channel-future .channel .closeFuture)
+  (.shutdownNow group))
 
 (defn ^ChannelInitializer channel-initializer []
   (proxy [ChannelInitializer]

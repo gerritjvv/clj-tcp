@@ -3,8 +3,8 @@
             [clojure.tools.logging :refer [info error]])
   (:import
           [clojure.lang IFn]
+          [clj_tcp.util DefaultMessageToByteEncoder]
           [java.nio ByteBuffer]
-          [io.netty.buffer ByteBufAllocator]
           [io.netty.buffer ByteBuf]
           [io.netty.channel ChannelHandlerContext]
           [io.netty.handler.codec MessageToByteEncoder MessageToMessageDecoder ByteToMessageDecoder]
@@ -37,18 +37,7 @@
           3: a byte array
           4: or a ByteBuff
   "
-  (proxy [MessageToByteEncoder]
-    [prever-direct]
-    (exceptionCaught [ctx e]
-        ;if the event nio loop was shutdown because all events are handled, we ignore
-        (if (not (instance? RejectedExecutionException e))
-          (error e e)))
-    (encode[ctx msg ^ByteBuf buff]
-      (cond
-          (instance? IFn msg) (msg buff)
-          (instance? String msg) (.writeBytes buff (.getBytes ^String msg "UTF-8"))
-          (instance? ByteBuf msg) (.writeBytes buff ^ByteBuf msg)
-          :else (.writeBytes buff ^bytes msg))))))
+  (DefaultMessageToByteEncoder. #(error % %) prever-direct)))
           
   
 
@@ -56,6 +45,7 @@
   (proxy [ByteToMessageDecoder]
     []
     (decode [ctx ^ByteBuf buff ^List out] ;ChannelHandlerContext ctx, ByteBuf in, List<Object> out
+            (.println System/out (str "Decoder buff " buff))
       (.add out (buffer->bytes buff))
       )))
 
@@ -63,8 +53,7 @@
   (proxy [MessageToByteEncoder]
     []
     (encode [ctx ^bytes bts ^ByteBuf buff]
-      (bytes->buffer buff bts)
-      )))
+            (bytes->buffer buff bts))))
 
 
 
