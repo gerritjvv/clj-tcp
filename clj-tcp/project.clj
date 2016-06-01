@@ -1,16 +1,16 @@
-(defproject clj-tcp "0.4.9"
+(defproject clj-tcp "1.0.1"
   :description "Fast clojure tcp library based on netty"
   :url "https://github.com/gerritjvv/clj-tcp"
   :license {:name "Eclipse Public License"
             :url "http://www.eclipse.org/legal/epl-v10.html"}
   :dependencies [ 
-                  [org.clojure/tools.logging "0.2.3"]
-		          [midje "1.6-alpha2" :scope "test"]
+                  [org.clojure/tools.logging "0.3.1"]
+		              [midje "1.8.3" :scope "test"]
 
-                  [io.netty/netty-all "4.0.24.Final"]
-                  [com.taoensso/nippy "2.5.2"]
-                  [org.clojure/core.async "0.1.267.0-0d7780-alpha"]
-                  [org.clojure/clojure "1.5.1"]]
+                  [io.netty/netty-all "4.0.36.Final"]
+                  [com.taoensso/nippy "2.11.1"]
+                  [org.clojure/core.async "0.2.374"]
+                  [org.clojure/clojure "1.8.0"]]
 
  :javac-options ["-target" "1.6" "-source" "1.6" "-Xlint:-options"] 
  :java-source-paths ["java"]
