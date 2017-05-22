@@ -9,6 +9,13 @@ The code uses ```clojure.core.async``` heavily to transmit messages for read, wr
 
 Contact: feel free to contact me at gerritjvv@gmail.com
 
+### Important
+
+This library should function as advertised and uses netty under the hood.
+I myself have learned that netty is not a good tcp client for my other projects e.g https://github.com/gerritjvv/kafka-fast.
+
+A much better library and netty free is https://github.com/gerritjvv/tcp-driver.
+
 ## Usage
 
 The binaries are published to https://clojars.org/clj-tcp
@@ -24,9 +31,10 @@ The binaries are published to https://clojars.org/clj-tcp
 
 (use 'clj-tcp.client :reload)
 
-(def c (client "localhost" 2324 {:reuse-client false}))
+(def c (client "localhost" 2324 {}))
 (read-print-in c)
 (write! c (.getBytes "hi"))
+
 ;; read ...
 ;; any subsequent write! calls will find a closed channel, the connection will reconnect, and retry the send.
 
@@ -41,13 +49,13 @@ The binaries are published to https://clojars.org/clj-tcp
 
 ## Netty and EventLoopGroup
 
-By default all client connections will share a global EventLoopGroup instance with threads=cpus/2 daemon=true.  
-This lowers resource usage, makes client creation faster and is the recommended way for netty.  
+By default all client connections will share a global EventLoopGroup instance with threads=cpus/2 daemon=true.
+This lowers resource usage, makes client creation faster and is the recommended way for netty.
 
-See http://normanmaurer.me/presentations/2014-facebook-eng-netty/slides.html#1.0 for a best practices overview.  
+See http://normanmaurer.me/presentations/2014-facebook-eng-netty/slides.html#1.0 for a best practices overview.
 
-If you need to override this behaviour and create your own EventLoopGroup for a client,  
-the client function allows this for both writing and reading.  
+If you need to override this behaviour and create your own EventLoopGroup for a client,
+the client function allows this for both writing and reading.
 
 ```clojure
 
@@ -76,7 +84,7 @@ Reading using go loops (preferred)
   (when-let [[e v] (<! (:error-ch c))]
     (prn "Error " e) (.printStackTrace e)
     (recur)))
-``` 
+```
 
 Reading using blocking methods
 
@@ -85,12 +93,12 @@ Reading using blocking methods
 (while true
    (if-let [[e v] (read-error c 1000)]
       (prn "Error " e)))
-```    
-
+```
+p
 ### Monitoring
 
-The package `clj-tcp.monitor` has a global variable (with weak references to avoid a memory leak)  
-named `monitor-ctx`.  
+The package `clj-tcp.monitor` has a global variable (with weak references to avoid a memory leak)
+named `monitor-ctx`.
 
 Functions like `report-counts` can be used to examine the context and monitor the numbre of open connections
 
@@ -119,9 +127,9 @@ The following config options can be passed to the client
 
 ## Memory
 
-By default and for ease of use the decoder used by the client copies the ByteBuf content to a byte array.  
-This is not very memory efficient, but for allot of application doesn't matter.  
-If you want to avoid this copying and directly use the ByteBuf specify the following decoder:  
+By default and for ease of use the decoder used by the client copies the ByteBuf content to a byte array.
+This is not very memory efficient, but for allot of application doesn't matter.
+If you want to avoid this copying and directly use the ByteBuf specify the following decoder:
 
 ```clojure
 (defn copy-bytebuf [read-ch ^ByteBuf buff]

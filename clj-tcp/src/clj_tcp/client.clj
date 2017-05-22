@@ -263,15 +263,14 @@
 (defn client [host port {:keys [handlers
                                 channel-options             ;io.netty.channel options a sequence of [option val] e.g. [[option val] ... ]
                                 retry-limit
-                                write-buff read-buff error-buff
-                                write-timeout read-timeout
                                 write-group-threads
                                 read-group-threads
                                 decoder
-                                ]
+                                write-buff read-buff error-buff]
+
                          :or   {handlers   [default-encoder] retry-limit 5
                                 decoder    nil
-                                write-buff 10 read-buff 5 error-buff 1000 reuse-client false write-timeout 1500 read-timeout 1500
+                                write-buff 10 read-buff 5 error-buff 1000
                                 }}]
 
       ;(info "Creating read-ch with read-buff " read-buff " write-ch with write-buff " write-buff)
@@ -394,7 +393,3 @@
 
 
            client))
-
-
-       
-		    
